@@ -98,7 +98,7 @@ def clamp_encoder_to_bounds():
     if enc.position > max_ticks:
         enc.position = max_ticks
         boundary_event = 1
-    elif enc.position < min_ticks:
+    elif enc.position < min_ticks: 
         enc.position = min_ticks
         boundary_event = -1
 
@@ -113,7 +113,7 @@ def block_display(msg: str, seconds: float):
 # Main loop
 # ----------------------------
 # Optional hello
-write_fixed("INIT")
+write_fixed("INIT") 
 time.sleep(0.3)
 
 while True:
@@ -135,7 +135,7 @@ while True:
         if boundary_event == 1:
             block_display("MAX ", MSG_BLOCK_MS)
         elif boundary_event == -1:
-            block_display("MIN ", MSG_BLOCK_MS)
+            block_display("MIN  ", MSG_BLOCK_MS)
         boundary_event = 0
 
     # Normal display when not blocked
