@@ -1,0 +1,11 @@
+# CircuitPython board volume
+CIRCUITPY/
+# Bytecode / temp
+*.mpy
+__pycache__/
+# Secrets
+src/settings.toml
+src/secrets.py
+# OS junk
+.DS_Store
+Thumbs.db
