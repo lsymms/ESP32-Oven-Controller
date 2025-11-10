@@ -120,6 +120,11 @@ def _print4(disp, text):
     except OSError as e:
         # Don't crash on I2C hiccups.
         print("Display I2C error:", e)
+        print("Attempting to reinitialize displays")
+        disp_tl = init_display(ADDR_TL, "TL")
+        disp_tr = init_display(ADDR_TR, "TR")
+        disp_bl = init_display(ADDR_BL, "BL")
+        disp_br = init_display(ADDR_BR, "BR")
 
 # Encoder
 try:
@@ -231,7 +236,7 @@ def show_layout(state, set_temp, oven_temp, step, mode_sel=None):
         tr = "    "
 
     # BL: step / context / alarm
-    if state in (STATE_BAKE, STATE_BROIL):
+    if state == STATE_BAKE:
         bl = STEP_LABELS.get(step, "+-??")
     elif state == STATE_SETTINGS:
         bl = "CFG "  # will be the name of the setting that is currently being adjusted. click will save the current setting change to the next setting
