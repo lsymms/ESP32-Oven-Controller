@@ -24,6 +24,8 @@ import neopixel
 from adafruit_debouncer import Debouncer
 from adafruit_ht16k33.segments import Seg14x4
 
+from settings_store import DEFAULT_SETTINGS, load_settings, save_settings
+
 print("Oven controller starting...")
 
 # ----------------------------
@@ -77,6 +79,50 @@ TEMP_BAND = 2.0                  # ±°F band for BAKE hold
 BROIL_MAX_TEMP = 550.0           # broil cap
 
 # ----------------------------
+# Settings persistence
+# ----------------------------
+
+SETTINGS_FILE = "oven_settings.json"
+BRIGHTNESS_MIN = 0.0
+BRIGHTNESS_MAX = 1.0
+BRIGHTNESS_STEP = 0.05
+
+
+def clamp_brightness(value):
+    try:
+        brightness_value = float(value)
+    except (TypeError, ValueError):
+        return BRIGHTNESS_MIN
+    if brightness_value < BRIGHTNESS_MIN:
+        brightness_value = BRIGHTNESS_MIN
+    if brightness_value > BRIGHTNESS_MAX:
+        brightness_value = BRIGHTNESS_MAX
+    return brightness_value
+
+
+settings_data = load_settings(SETTINGS_FILE)
+display_brightness = clamp_brightness(
+    settings_data.get("brightness", DEFAULT_SETTINGS["brightness"])
+)
+settings_dirty = False
+
+if display_brightness != settings_data.get("brightness"):
+    settings_data["brightness"] = display_brightness
+    settings_dirty = True
+
+
+def save_settings_if_dirty():
+    global settings_dirty
+    if not settings_dirty:
+        return
+    try:
+        save_settings(settings_data, SETTINGS_FILE)
+        settings_dirty = False
+        print("Settings saved.")
+    except OSError as error:
+        print("Failed to save settings:", error)
+
+# ----------------------------
 # States
 # ----------------------------
 
@@ -98,7 +144,7 @@ i2c = busio.I2C(scl=I2C_SCL, sda=I2C_SDA, frequency=100000)
 def init_display(address, label):
     try:
         d = Seg14x4(i2c, address=address)
-        d.brightness = 0.0  # dim but on (0.0–1.0)
+        d.brightness = display_brightness  # dim but on (0.0–1.0)
         d.fill(0)
         print("Display", label, "found at", hex(address))
         return d
@@ -106,10 +152,23 @@ def init_display(address, label):
         print("Display", label, "NOT found at", hex(address), "->", e)
         return None
 
+
+def apply_display_brightness(value):
+    for disp in (disp_tl, disp_tr, disp_bl, disp_br):
+        if disp is not None:
+            try:
+                disp.brightness = value
+            except OSError as error:
+                print("Display brightness set error:", error)
+
+
 disp_tl = init_display(ADDR_TL, "TL")
 disp_tr = init_display(ADDR_TR, "TR")
 disp_bl = init_display(ADDR_BL, "BL")
 disp_br = init_display(ADDR_BR, "BR")
+
+apply_display_brightness(display_brightness)
+save_settings_if_dirty()
 
 def _print4(disp, text):
     if disp is None:
@@ -178,6 +237,18 @@ def _fmt_temp(val):
         v = 999
     return "{:03d}F".format(v)[-4:]
 
+
+def _fmt_brightness(val):
+    try:
+        v = float(val)
+    except (TypeError, ValueError):
+        return "Err "
+    if v < BRIGHTNESS_MIN:
+        v = BRIGHTNESS_MIN
+    if v > BRIGHTNESS_MAX:
+        v = BRIGHTNESS_MAX
+    return "{:.2f}".format(v)[:4]
+
 def _mode_label(state):
     if state == STATE_OFF:
         return "OFF "
@@ -195,7 +266,7 @@ def set_all_displays(tl, tr, bl, br):
     _print4(disp_bl, bl)
     _print4(disp_br, br)
 
-def show_layout(state, set_temp, oven_temp, step, mode_sel=None):
+def show_layout(state, set_temp, oven_temp, step, mode_sel=None, brightness=None):
     """
     Map logical state -> 4 displays.
     - Always show something on each display.
@@ -229,7 +300,7 @@ def show_layout(state, set_temp, oven_temp, step, mode_sel=None):
     elif state == STATE_MODE_SELECT:
         tr = _mode_label(mode_sel)
     elif state == STATE_SETTINGS:
-        tr = "Val "  # will display current value which will change with rotation of rot enc
+        tr = _fmt_brightness(brightness)
     elif state == STATE_ALARM:
         tr = "Err "
     else:
@@ -239,7 +310,7 @@ def show_layout(state, set_temp, oven_temp, step, mode_sel=None):
     if state == STATE_BAKE:
         bl = STEP_LABELS.get(step, "+-??")
     elif state == STATE_SETTINGS:
-        bl = "CFG "  # will be the name of the setting that is currently being adjusted. click will save the current setting change to the next setting
+        bl = "brt "
     elif state == STATE_ALARM:
         bl = "ALRM"
     else:
@@ -305,7 +376,14 @@ last_control_update = 0.0
 last_main_mode = STATE_OFF
 
 set_pixel_for_state(current_state)
-show_layout(current_state, set_temp, oven_temp, current_step, mode_sel=selected_mode)
+show_layout(
+    current_state,
+    set_temp,
+    oven_temp,
+    current_step,
+    mode_sel=selected_mode,
+    brightness=display_brightness,
+)
 
 print("Init complete; entering main loop.")
 
@@ -344,7 +422,17 @@ while True:
                 new_temp = MAX_SET_TEMP
             set_temp = new_temp
 
-        # OFF/BROIL/SETTINGS/ALARM: encoder does NOT change BAKE set_temp here
+        elif current_state == STATE_SETTINGS:
+            new_brightness = clamp_brightness(
+                display_brightness + (delta * BRIGHTNESS_STEP)
+            )
+            if new_brightness != display_brightness:
+                display_brightness = new_brightness
+                settings_data["brightness"] = display_brightness
+                settings_dirty = True
+                apply_display_brightness(display_brightness)
+
+        # OFF/BROIL/ALARM: encoder does NOT change BAKE set_temp here
 
     # Button pressed
     if button.fell:
@@ -360,6 +448,7 @@ while True:
     ):
         # SETTINGS: long press exits to previous main mode
         if current_state == STATE_SETTINGS:
+            save_settings_if_dirty()
             current_state = last_main_mode
             set_pixel_for_state(current_state)
 
@@ -401,7 +490,8 @@ while True:
                     current_state = selected_mode
                 set_pixel_for_state(current_state)
 
-            # (Settings short-press field behavior can go here later)
+            elif current_state == STATE_SETTINGS:
+                save_settings_if_dirty()
 
         # Reset press tracking
         last_button_press_time = None
@@ -445,6 +535,7 @@ while True:
             oven_temp=oven_temp,
             step=current_step,
             mode_sel=selected_mode,
+            brightness=display_brightness,
         )
 
     time.sleep(0.002)
