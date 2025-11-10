@@ -172,6 +172,7 @@ def apply_display_brightness(value):
 
 
 def _print4(disp, text):
+    global disp_tl, disp_tr, disp_bl, disp_br
     if disp is None:
         return
     s = (str(text) + "    ")[:4]
@@ -290,7 +291,7 @@ def _fmt_brightness(val):
         percent = 0
     if percent > 100:
         percent = 100
-    return f"{percent:>3d}%"
+    return f"{percent:>3d}"
 
 def _mode_label(state):
     if state == STATE_OFF:
