@@ -15,6 +15,7 @@
 # - K-type via MAX6675 stubbed
 
 import time
+import errno
 import board
 import busio
 import digitalio
@@ -120,7 +121,14 @@ def save_settings_if_dirty():
         settings_dirty = False
         print("Settings saved.")
     except OSError as error:
-        print("Failed to save settings:", error)
+        # A read-only filesystem is a common scenario when running the
+        # firmware from a development host. In that case, retrying will
+        # never succeed, so clear the dirty flag to avoid spamming the log.
+        if error.errno in (errno.EROFS, errno.EPERM, errno.EACCES):
+            print("Failed to save settings (read-only filesystem):", error)
+            settings_dirty = False
+        else:
+            print("Failed to save settings:", error)
 
 # ----------------------------
 # States
@@ -242,7 +250,12 @@ def _fmt_brightness(val):
         v = BRIGHTNESS_MIN
     if v > BRIGHTNESS_MAX:
         v = BRIGHTNESS_MAX
-    return "{:.2f}".format(v)[:4]
+    percent = int(round(v * 100))
+    if percent < 0:
+        percent = 0
+    if percent > 100:
+        percent = 100
+    return f"{percent:>3d}%"
 
 def _mode_label(state):
     if state == STATE_OFF:
