@@ -164,19 +164,12 @@ def init_display(address, label):
 def apply_display_brightness(value):
     for disp in (disp_tl, disp_tr, disp_bl, disp_br):
         if disp is not None:
-            try:
+            try: 
                 disp.brightness = value
             except OSError as error:
                 print("Display brightness set error:", error)
 
 
-disp_tl = init_display(ADDR_TL, "TL")
-disp_tr = init_display(ADDR_TR, "TR")
-disp_bl = init_display(ADDR_BL, "BL")
-disp_br = init_display(ADDR_BR, "BR")
-
-apply_display_brightness(display_brightness)
-save_settings_if_dirty()
 
 def _print4(disp, text):
     if disp is None:
@@ -184,6 +177,7 @@ def _print4(disp, text):
     s = (str(text) + "    ")[:4]
     try:
         disp.print(s)
+        print("Updated display to " + s)
     except OSError as e:
         # Don't crash on I2C hiccups.
         print("Display I2C error:", e)
@@ -192,6 +186,42 @@ def _print4(disp, text):
         disp_tr = init_display(ADDR_TR, "TR")
         disp_bl = init_display(ADDR_BL, "BL")
         disp_br = init_display(ADDR_BR, "BR")
+        
+def set_all_displays(tl, tr, bl, br):
+    global last_tl, last_tr, last_bl, last_br
+
+    if tl != last_tl:
+        print("Updating TopLeft display to " + tl)
+        _print4(disp_tl, tl)
+        last_tl = tl
+
+    if tr != last_tr:
+        print("Updating TopRight display to " + tr)
+        _print4(disp_tr, tr)
+        last_tr = tr
+
+    if bl != last_bl:
+        print("Updating BotLeft display to " + bl)
+        _print4(disp_bl, bl)
+        last_bl = bl
+
+    if br != last_br:
+        print("Updating BotRight display to " + br)
+        _print4(disp_br, br)
+        last_br = br
+        
+disp_tl = init_display(ADDR_TL, "TL")
+disp_tr = init_display(ADDR_TR, "TR")
+disp_bl = init_display(ADDR_BL, "BL")
+disp_br = init_display(ADDR_BR, "BR")
+last_tl = "...."
+last_tr = "...."
+last_bl = "...."
+last_br = "...."
+
+apply_display_brightness(display_brightness)
+save_settings_if_dirty()
+
 
 # Encoder
 try:
@@ -273,11 +303,7 @@ def _mode_label(state):
         return "SEt "
     return "    "
 
-def set_all_displays(tl, tr, bl, br):
-    _print4(disp_tl, tl)
-    _print4(disp_tr, tr)
-    _print4(disp_bl, bl)
-    _print4(disp_br, br)
+
 
 def show_layout(state, set_temp, oven_temp, step, mode_sel=None, brightness=None):
     """
