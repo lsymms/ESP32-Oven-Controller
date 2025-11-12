@@ -39,7 +39,15 @@ class OvenController:
     LONG_PRESS_TIME = 0.8
 
     TEMP_BAND = 2.0
-    BROIL_MAX_TEMP = 550.0
+    BROIL_HIGH_TEMP = 550.0
+    BROIL_LOW_TEMP = 450.0
+
+    BROIL_LEVEL_LOW = 0
+    BROIL_LEVEL_HIGH = 1
+    BROIL_LEVEL_LABELS = {
+        BROIL_LEVEL_LOW: "L-LO",
+        BROIL_LEVEL_HIGH: "L-HI",
+    }
 
     BRIGHTNESS_MIN = 0.0
     BRIGHTNESS_MAX = 1.0
@@ -67,6 +75,7 @@ class OvenController:
         self.current_step = self.STEP_SEQUENCE[self.step_index]
         self.oven_temp = self._read_oven_temp()
         self.last_main_mode = self.STATE_OFF
+        self.broil_level = self.BROIL_LEVEL_HIGH
 
         self.last_button_press_time = None
         self.long_press_handled = False
@@ -110,6 +119,9 @@ class OvenController:
         def show_brightness(context):
             return context.fmt_brightness(context.brightness)
 
+        def show_broil_level(context):
+            return context.broil_label(context.broil_level)
+
         self.display_manager.register_layout(
             self.STATE_OFF,
             Layout(
@@ -133,8 +145,8 @@ class OvenController:
         self.display_manager.register_layout(
             self.STATE_BROIL,
             Layout(
-                tl="BRoL",
-                tr="MAX ",
+                tl="BROI",
+                tr=show_broil_level,
                 bl="    ",
                 br=show_temp,
             ),
@@ -181,6 +193,8 @@ class OvenController:
             fmt_temp=self._fmt_temp,
             fmt_brightness=self._fmt_brightness,
             mode_label=self._mode_label,
+            broil_level=self.broil_level,
+            broil_label=self._broil_label,
         )
         if force:
             # Reset cached display values so that the first render prints to all.
@@ -230,6 +244,12 @@ class OvenController:
                 self.MIN_SET_TEMP,
                 self.MAX_SET_TEMP,
             )
+        elif self.current_state == self.STATE_BROIL:
+            step_dir = 1 if delta > 0 else -1
+            new_level = self.broil_level + step_dir
+            new_level = self._clamp(new_level, self.BROIL_LEVEL_LOW, self.BROIL_LEVEL_HIGH)
+            if new_level != self.broil_level:
+                self.broil_level = new_level
         elif self.current_state == self.STATE_SETTINGS:
             new_brightness = self._clamp_brightness(
                 self.display_brightness + (delta * self.BRIGHTNESS_STEP)
@@ -286,7 +306,7 @@ class OvenController:
             return
         self.last_temp_update = now
         self.oven_temp = self._read_oven_temp()
-        if self.oven_temp >= (self.BROIL_MAX_TEMP + 50):
+        if self.oven_temp >= (self.BROIL_HIGH_TEMP + 50):
             self._transition_to(self.STATE_ALARM)
             self.hardware.set_elements(False, False)
 
@@ -301,7 +321,12 @@ class OvenController:
             elif self.oven_temp > (self.set_temp + self.TEMP_BAND):
                 self.hardware.set_elements(False, False)
         elif self.current_state == self.STATE_BROIL:
-            if self.oven_temp < self.BROIL_MAX_TEMP:
+            target = (
+                self.BROIL_HIGH_TEMP
+                if self.broil_level == self.BROIL_LEVEL_HIGH
+                else self.BROIL_LOW_TEMP
+            )
+            if self.oven_temp < target:
                 self.hardware.set_elements(False, True)
             else:
                 self.hardware.set_elements(False, False)
@@ -354,10 +379,13 @@ class OvenController:
         if state == self.STATE_BAKE:
             return "BAKE"
         if state == self.STATE_BROIL:
-            return "BRoL"
+            return "BROI"
         if state == self.STATE_SETTINGS:
             return "SEt "
         return "    "
+
+    def _broil_label(self, level):
+        return self.BROIL_LEVEL_LABELS.get(level, self.BROIL_LEVEL_LABELS[self.BROIL_LEVEL_HIGH])
 
     # ------------------------------------------------------------------
     # Utility helpers

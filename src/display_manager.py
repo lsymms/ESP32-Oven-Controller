@@ -11,7 +11,21 @@ Layout = namedtuple("Layout", "tl tr bl br")
 class DisplayContext:
     """Container for values used to render the four displays."""
 
-    def __init__(self, *, state, set_temp, oven_temp, step, mode_sel, brightness, fmt_temp, fmt_brightness, mode_label):
+    def __init__(
+        self,
+        *,
+        state,
+        set_temp,
+        oven_temp,
+        step,
+        mode_sel,
+        brightness,
+        fmt_temp,
+        fmt_brightness,
+        mode_label,
+        broil_level,
+        broil_label,
+    ):
         self.state = state
         self.set_temp = set_temp
         self.oven_temp = oven_temp
@@ -21,6 +35,8 @@ class DisplayContext:
         self.fmt_temp = fmt_temp
         self.fmt_brightness = fmt_brightness
         self.mode_label = mode_label
+        self.broil_level = broil_level
+        self.broil_label = broil_label
 
 
 class DisplayManager:
