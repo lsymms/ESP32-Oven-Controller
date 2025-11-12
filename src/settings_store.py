@@ -1,5 +1,6 @@
 """Persistent settings storage helpers for the oven controller."""
 
+import errno
 import json
 import os
 
@@ -47,3 +48,43 @@ def save_settings(settings, path):
         except OSError:
             pass
         raise error
+
+
+class SettingsStore:
+    """Small helper to manage oven settings with dirty tracking."""
+
+    def __init__(self, path):
+        self._path = path
+        self._data = load_settings(path)
+        self._dirty = False
+
+    def get(self, key):
+        return self._data.get(key, DEFAULT_SETTINGS.get(key))
+
+    def set(self, key, value):
+        if self._data.get(key) == value:
+            return False
+        self._data[key] = value
+        self._dirty = True
+        return True
+
+    @property
+    def dirty(self):
+        return self._dirty
+
+    def save_if_dirty(self):
+        if not self._dirty:
+            return True
+        try:
+            save_settings(self._data, self._path)
+        except OSError as error:
+            if error.errno in (errno.EROFS, errno.EPERM, errno.EACCES):
+                print("Failed to save settings (read-only filesystem):", error)
+                self._dirty = False
+                return False
+            print("Failed to save settings:", error)
+            return False
+        else:
+            self._dirty = False
+            print("Settings saved.")
+            return True
