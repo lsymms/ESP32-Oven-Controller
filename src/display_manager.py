@@ -28,6 +28,9 @@ class DisplayContext:
         setting_label_top,
         setting_label_bottom,
         setting_value,
+        flash_tl_decimals=False,
+        flash_bl_decimals=False,
+        decimal_visible=False,
     ):
         self.state = state
         self.set_temp = set_temp
@@ -43,6 +46,9 @@ class DisplayContext:
         self.setting_label_top = setting_label_top
         self.setting_label_bottom = setting_label_bottom
         self.setting_value = setting_value
+        self.flash_tl_decimals = flash_tl_decimals
+        self.flash_bl_decimals = flash_bl_decimals
+        self.decimal_visible = decimal_visible
 
 
 class DisplayManager:
@@ -67,6 +73,7 @@ class DisplayManager:
             "bl": self._resolve(layout.bl, context),
             "br": self._resolve(layout.br, context),
         }
+        texts = self._apply_decimal_flash(texts, context)
         self._displays.show_texts(texts)
 
     def _resolve(self, value, context):
@@ -76,3 +83,40 @@ class DisplayManager:
 
     def apply_brightness(self, value):
         self._displays.apply_brightness(value)
+
+    def _apply_decimal_flash(self, texts, context):
+        result = dict(texts)
+        decimal_visible = getattr(context, "decimal_visible", False)
+
+        if getattr(context, "flash_tl_decimals", False) and decimal_visible:
+            result["tl"] = self._add_all_decimals(result.get("tl"))
+
+        if getattr(context, "flash_bl_decimals", False) and decimal_visible:
+            result["bl"] = self._add_all_decimals(result.get("bl"))
+
+        return result
+
+    @staticmethod
+    def _add_all_decimals(text):
+        if text is None:
+            text = ""
+
+        stripped = "".join(char for char in str(text) if char != ".")
+        if not stripped:
+            stripped = "    "
+
+        output = []
+        glyphs = 0
+        for char in stripped:
+            output.append(char)
+            glyphs += 1
+            output.append(".")
+            if glyphs >= 4:
+                break
+
+        while glyphs < 4:
+            output.append(" ")
+            glyphs += 1
+            output.append(".")
+
+        return "".join(output)
