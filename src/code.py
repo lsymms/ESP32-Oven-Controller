@@ -442,7 +442,9 @@ class OvenController:
         cleaned = str(text or "")
         cleaned = cleaned.replace("\n", " ")
         cleaned = cleaned.upper()
-        return cleaned.ljust(8)[:8]
+        if len(cleaned) >= 8:
+            return cleaned[:8]
+        return cleaned + (" " * (8 - len(cleaned)))
 
     def _mode_label(self, state):
         if state == self.STATE_OFF:
