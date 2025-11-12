@@ -25,6 +25,9 @@ class DisplayContext:
         mode_label,
         broil_level,
         broil_label,
+        setting_label_top,
+        setting_label_bottom,
+        setting_value,
     ):
         self.state = state
         self.set_temp = set_temp
@@ -37,6 +40,9 @@ class DisplayContext:
         self.mode_label = mode_label
         self.broil_level = broil_level
         self.broil_label = broil_label
+        self.setting_label_top = setting_label_top
+        self.setting_label_bottom = setting_label_bottom
+        self.setting_value = setting_value
 
 
 class DisplayManager:

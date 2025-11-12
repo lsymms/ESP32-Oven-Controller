@@ -6,6 +6,10 @@ import os
 
 DEFAULT_SETTINGS = {
     "brightness": 0.0,
+    "pid_kp": 0.05,
+    "pid_ki": 0.001,
+    "pid_kd": 0.1,
+    "pid_window_delta": 15.0,
 }
 
 
