@@ -28,8 +28,8 @@ class DisplayContext:
         setting_label_top,
         setting_label_bottom,
         setting_value,
-        flash_tl_decimals=False,
-        flash_bl_decimals=False,
+        flash_tr_decimals=False,
+        flash_br_decimals=False,
         decimal_visible=False,
     ):
         self.state = state
@@ -46,8 +46,8 @@ class DisplayContext:
         self.setting_label_top = setting_label_top
         self.setting_label_bottom = setting_label_bottom
         self.setting_value = setting_value
-        self.flash_tl_decimals = flash_tl_decimals
-        self.flash_bl_decimals = flash_bl_decimals
+        self.flash_tr_decimals = flash_tr_decimals
+        self.flash_br_decimals = flash_br_decimals
         self.decimal_visible = decimal_visible
 
 
@@ -88,11 +88,11 @@ class DisplayManager:
         result = dict(texts)
         decimal_visible = getattr(context, "decimal_visible", False)
 
-        if getattr(context, "flash_tl_decimals", False) and decimal_visible:
-            result["tl"] = self._add_all_decimals(result.get("tl"))
+        if getattr(context, "flash_tr_decimals", False) and decimal_visible:
+            result["tr"] = self._add_all_decimals(result.get("tr"))
 
-        if getattr(context, "flash_bl_decimals", False) and decimal_visible:
-            result["bl"] = self._add_all_decimals(result.get("bl"))
+        if getattr(context, "flash_br_decimals", False) and decimal_visible:
+            result["br"] = self._add_all_decimals(result.get("br"))
 
         return result
 

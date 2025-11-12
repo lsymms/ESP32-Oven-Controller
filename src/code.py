@@ -249,7 +249,7 @@ class OvenController:
     def _render_display(self, force=False, now=None):
         if now is None:
             now = time.monotonic()
-        flash_tl, flash_bl = self._update_decimal_flash(now)
+        flash_tr, flash_br = self._update_decimal_flash(now)
         (
             setting_label_top,
             setting_label_bottom,
@@ -271,8 +271,8 @@ class OvenController:
             setting_label_top=setting_label_top,
             setting_label_bottom=setting_label_bottom,
             setting_value=setting_value,
-            flash_tl_decimals=flash_tl,
-            flash_bl_decimals=flash_bl,
+            flash_tr_decimals=flash_tr,
+            flash_br_decimals=flash_br,
             decimal_visible=self.decimal_flash_visible,
         )
         if force:
@@ -326,31 +326,31 @@ class OvenController:
         self.heating_mode = mode
 
     def _update_decimal_flash(self, now):
-        flash_tl, flash_bl = self._compute_decimal_targets()
-        active = flash_tl or flash_bl
+        flash_tr, flash_br = self._compute_decimal_targets()
+        active = flash_tr or flash_br
         if not active:
             if self.decimal_flash_active:
                 self.decimal_flash_visible = False
             self.decimal_flash_active = False
             self.last_decimal_flash_toggle = now
-            return flash_tl, flash_bl
+            return flash_tr, flash_br
         if not self.decimal_flash_active:
             self.decimal_flash_active = True
             self.decimal_flash_visible = True
             self.last_decimal_flash_toggle = now
-            return flash_tl, flash_bl
+            return flash_tr, flash_br
         if (now - self.last_decimal_flash_toggle) >= self.DECIMAL_FLASH_PERIOD:
             self.decimal_flash_visible = not self.decimal_flash_visible
             self.last_decimal_flash_toggle = now
-        return flash_tl, flash_bl
+        return flash_tr, flash_br
 
     def _compute_decimal_targets(self):
-        flash_tl = (
+        flash_tr = (
             self.top_element_on
             and self.current_state in (self.STATE_BAKE, self.STATE_BROIL)
         )
-        flash_bl = self.bottom_element_on
-        return flash_tl, flash_bl
+        flash_br = self.bottom_element_on
+        return flash_tr, flash_br
 
     # ------------------------------------------------------------------
     # State helpers
