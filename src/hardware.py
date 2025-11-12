@@ -63,23 +63,48 @@ class DisplayBundle:
 
     def show_texts(self, mapping):
         for key, text in mapping.items():
+            formatted = self._format_text(text)
             previous = self._last_values.get(key)
-            if previous == text:
+            if previous == formatted:
                 continue
-            self._print_text(key, text)
-            self._last_values[key] = text
+            self._print_text(key, formatted)
+            self._last_values[key] = formatted
 
     def reset_cache(self):
         self._last_values = {key: "" for key in self._addresses}
+
+    def _format_text(self, text):
+        raw = "" if text is None else str(text)
+        buffer = []
+        glyph_count = 0
+
+        for char in raw:
+            if char == ".":
+                if not buffer:
+                    # Skip leading decimals that have no glyph to attach to.
+                    continue
+                buffer.append(char)
+                continue
+
+            if glyph_count >= 4:
+                break
+
+            buffer.append(char)
+            glyph_count += 1
+
+        while glyph_count < 4:
+            buffer.append(" ")
+            glyph_count += 1
+
+        return "".join(buffer)
 
     def _print_text(self, key, text):
         display = self._displays.get(key)
         if display is None:
             return
-        padded = (str(text) + "    ")[:4]
         try:
-            display.print(padded)
-            print("Updated", key.upper(), "display to", padded)
+            display.print(text)
+            print("Updated", key.upper(), "display to", text)
         except OSError as error:
             print("Display I2C error on", key.upper(), ":", error)
             # Attempt to reinitialise just this display so that future
