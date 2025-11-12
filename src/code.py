@@ -124,7 +124,6 @@ class OvenController:
         self.top_element_on = False
         self._simulator = SimulatedOven()
         self.oven_temp = self._read_oven_temp()
-        self.prev_oven_temp = self.oven_temp
         self.last_main_mode = self.STATE_OFF
         self.broil_level = self.BROIL_LEVEL_HIGH
 
@@ -144,7 +143,6 @@ class OvenController:
         self.decimal_flash_visible = False
         self.last_decimal_flash_toggle = time.monotonic()
         self.decimal_flash_active = False
-        self.waiting_for_decline = False
 
         self._set_pixel_for_state(self.current_state)
         self._render_display(force=True)
@@ -449,8 +447,6 @@ class OvenController:
         if (now - self.last_temp_update) < self.TEMP_UPDATE_RATE:
             return
         self.last_temp_update = now
-        if self.oven_temp is not None:
-            self.prev_oven_temp = self.oven_temp
         self.oven_temp = self._read_oven_temp()
         if self.oven_temp >= (self.BROIL_HIGH_TEMP + 50):
             self._transition_to(self.STATE_ALARM)
@@ -741,32 +737,18 @@ class OvenController:
     def _update_bake_control(self, now):
         lower_bound = self.set_temp - self.pid_window_delta
         upper_bound = self.set_temp + self.pid_window_delta
-        # Suppress PID output while we are above the set temp and the oven
-        # has not started to cool back down.
-        temp_declining = (
-            self.prev_oven_temp is not None
-            and self.oven_temp < self.prev_oven_temp
-        )
-        overshoot_active = self.oven_temp >= self.set_temp
-        self.waiting_for_decline = overshoot_active and not temp_declining
 
         if self.oven_temp <= lower_bound:
             self._apply_direct_heating(True, now)
             return
         if self.oven_temp >= upper_bound:
-            self.waiting_for_decline = True
             self._apply_direct_heating(False, now)
             return
 
         error = self.set_temp - self.oven_temp
         self._set_heating_mode(self.HEAT_MODE_PID)
         _output, bottom_on = self.pid.update(error, now)
-        if self.waiting_for_decline and bottom_on:
-            bottom_on = False
-            reason = "pid hold (overshoot)"
-        else:
-            reason = "pid control"
-        self._set_elements(bottom_on, False, reason=reason)
+        self._set_elements(bottom_on, False, reason="pid control")
 
     def _apply_direct_heating(self, on, now):
         self._set_heating_mode(self.HEAT_MODE_DIRECT)
