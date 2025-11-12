@@ -745,9 +745,7 @@ class OvenController:
 
     def _apply_direct_heating(self, on, now):
         self._set_heating_mode(self.HEAT_MODE_DIRECT)
-        state_text = "ON" if on else "OFF"
-        print(f"Direct heating request -> bottom element {state_text}")
-        self._set_elements(on, False, reason="direct heating")
+        self._set_elements(on, on, reason="direct heating")
         self._reset_pid(now=now, error=self.set_temp - self.oven_temp)
 
     def _reset_pid(self, *, now=None, error=0.0):
