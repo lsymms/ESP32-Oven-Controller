@@ -39,16 +39,22 @@ def save_settings(settings, path):
     payload = {key: settings.get(key, DEFAULT_SETTINGS.get(key)) for key in DEFAULT_SETTINGS}
 
     temp_path = path + ".tmp"
+    print("attempting to save settings to temp file " + temp_path + " and replace setting sfile " + path)
     with open(temp_path, "w") as file_handle:
         json.dump(payload, file_handle)
         file_handle.flush()
+        print("finished writing settings to temp " + temp_path)
 
     try:
         os.rename(temp_path, path)
+        print("finished replacing settings file " + path)
     except OSError as error:
+        print("failed to rename " + temp_path + " to " + path)
         # Best-effort cleanup on failure; leave temp file if removal fails.
         try:
             os.remove(temp_path)
+            
+            print("cleaned settings temp file" + temp_path)
         except OSError:
             pass
         raise error
