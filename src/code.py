@@ -4,6 +4,7 @@ import time
 
 from display_manager import DisplayContext, DisplayManager, Layout
 from hardware import create_hardware
+from pid_controller import PIDController
 from settings_store import SettingsStore
 
 print("Oven controller starting...")
@@ -90,6 +91,16 @@ class OvenController:
             self.DEFAULT_PID_WINDOW_DELTA,
             self.PID_WINDOW_DELTA_MIN,
             self.PID_WINDOW_DELTA_MAX,
+        )
+
+        self.pid = PIDController(
+            self.pid_kp,
+            self.pid_ki,
+            self.pid_kd,
+            output_min=self.PID_OUTPUT_MIN,
+            output_max=self.PID_OUTPUT_MAX,
+            integral_limit=self.PID_INTEGRAL_LIMIT,
+            cycle_time=self.PID_CYCLE_TIME,
         )
 
         self.hardware = create_hardware(self.display_brightness)
@@ -651,58 +662,16 @@ class OvenController:
             return
 
         error = self.set_temp - self.oven_temp
-        if self.pid_last_time is None:
-            dt = 0.0
-        else:
-            dt = now - self.pid_last_time
-        if dt < 0:
-            dt = 0.0
-
-        if dt > 0:
-            self.pid_integral += error * dt
-            self.pid_integral = self._clamp(
-                self.pid_integral, -self.PID_INTEGRAL_LIMIT, self.PID_INTEGRAL_LIMIT
-            )
-            derivative = (error - self.pid_last_error) / dt
-        else:
-            derivative = 0.0
-
-        output = (
-            (self.pid_kp * error)
-            + (self.pid_ki * self.pid_integral)
-            + (self.pid_kd * derivative)
-        )
-        output = self._clamp(output, self.PID_OUTPUT_MIN, self.PID_OUTPUT_MAX)
-        self.pid_last_output = output
-        self.pid_last_error = error
-        self.pid_last_time = now
-
-        if self.pid_cycle_start is None:
-            self.pid_cycle_start = now
-            elapsed = 0.0
-        else:
-            elapsed = now - self.pid_cycle_start
-            if elapsed >= self.PID_CYCLE_TIME:
-                self.pid_cycle_start = now
-                elapsed = 0.0
-
-        self.pid_cycle_on_time = output * self.PID_CYCLE_TIME
-        bottom_on = elapsed < self.pid_cycle_on_time
+        _output, bottom_on = self.pid.update(error, now)
         self.hardware.set_elements(bottom_on, False)
 
     def _apply_direct_heating(self, on, now):
         self.hardware.set_elements(on, False)
-        self._reset_pid()
-        self.pid_last_time = now
-        self.pid_last_error = self.set_temp - self.oven_temp
+        self._reset_pid(now=now, error=self.set_temp - self.oven_temp)
 
-    def _reset_pid(self):
-        self.pid_integral = 0.0
-        self.pid_last_error = 0.0
-        self.pid_last_time = None
-        self.pid_cycle_start = None
-        self.pid_cycle_on_time = 0.0
-        self.pid_last_output = 0.0
+    def _reset_pid(self, *, now=None, error=0.0):
+        self.pid.configure(kp=self.pid_kp, ki=self.pid_ki, kd=self.pid_kd)
+        self.pid.reset(now=now, error=error)
 
 
 controller = OvenController()
