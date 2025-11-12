@@ -49,6 +49,10 @@ class OvenController:
         BROIL_LEVEL_HIGH: "L-HI",
     }
 
+    HEAT_MODE_OFF = "off"
+    HEAT_MODE_DIRECT = "direct"
+    HEAT_MODE_PID = "pid"
+
     BRIGHTNESS_MIN = 0.0
     BRIGHTNESS_MAX = 1.0
     BRIGHTNESS_STEP = 0.05
@@ -66,6 +70,8 @@ class OvenController:
     PID_OUTPUT_MAX = 1.0
     PID_INTEGRAL_LIMIT = 1000.0
     PID_CYCLE_TIME = 5.0
+
+    DECIMAL_FLASH_PERIOD = 1.0
 
     def __init__(self):
         self.settings = SettingsStore(self.SETTINGS_FILE)
@@ -128,6 +134,13 @@ class OvenController:
         self.last_encoder_pos = self.hardware.encoder.position
 
         self._reset_pid()
+
+        self.bottom_element_on = False
+        self.top_element_on = False
+        self.heating_mode = self.HEAT_MODE_OFF
+        self.decimal_flash_visible = False
+        self.last_decimal_flash_toggle = time.monotonic()
+        self.decimal_flash_active = False
 
         self._set_pixel_for_state(self.current_state)
         self._render_display(force=True)
@@ -233,7 +246,10 @@ class OvenController:
             ),
         )
 
-    def _render_display(self, force=False):
+    def _render_display(self, force=False, now=None):
+        if now is None:
+            now = time.monotonic()
+        flash_tl, flash_bl = self._update_decimal_flash(now)
         (
             setting_label_top,
             setting_label_bottom,
@@ -255,6 +271,9 @@ class OvenController:
             setting_label_top=setting_label_top,
             setting_label_bottom=setting_label_bottom,
             setting_value=setting_value,
+            flash_tl_decimals=flash_tl,
+            flash_bl_decimals=flash_bl,
+            decimal_visible=self.decimal_flash_visible,
         )
         if force:
             # Reset cached display values so that the first render prints to all.
@@ -277,6 +296,61 @@ class OvenController:
         else:
             color = (5, 5, 5)
         self.hardware.pixel[0] = color
+
+    def _set_elements(self, bottom_on, top_on, *, reason=None):
+        bottom_on = bool(bottom_on)
+        top_on = bool(top_on)
+        if (
+            bottom_on != self.bottom_element_on
+            or top_on != self.top_element_on
+        ):
+            state_parts = [
+                f"bottom={'ON' if bottom_on else 'OFF'}",
+                f"top={'ON' if top_on else 'OFF'}",
+            ]
+            prefix = f"Setting elements ({reason})" if reason else "Setting elements"
+            print(f"{prefix}: {', '.join(state_parts)}")
+        self.bottom_element_on = bottom_on
+        self.top_element_on = top_on
+        self.hardware.set_elements(bottom_on, top_on)
+
+    def _set_heating_mode(self, mode):
+        if mode == self.heating_mode:
+            return
+        print(
+            "Heating mode change:",
+            self.heating_mode.upper(),
+            "->",
+            mode.upper(),
+        )
+        self.heating_mode = mode
+
+    def _update_decimal_flash(self, now):
+        flash_tl, flash_bl = self._compute_decimal_targets()
+        active = flash_tl or flash_bl
+        if not active:
+            if self.decimal_flash_active:
+                self.decimal_flash_visible = False
+            self.decimal_flash_active = False
+            self.last_decimal_flash_toggle = now
+            return flash_tl, flash_bl
+        if not self.decimal_flash_active:
+            self.decimal_flash_active = True
+            self.decimal_flash_visible = True
+            self.last_decimal_flash_toggle = now
+            return flash_tl, flash_bl
+        if (now - self.last_decimal_flash_toggle) >= self.DECIMAL_FLASH_PERIOD:
+            self.decimal_flash_visible = not self.decimal_flash_visible
+            self.last_decimal_flash_toggle = now
+        return flash_tl, flash_bl
+
+    def _compute_decimal_targets(self):
+        flash_tl = (
+            self.top_element_on
+            and self.current_state in (self.STATE_BAKE, self.STATE_BROIL)
+        )
+        flash_bl = self.bottom_element_on
+        return flash_tl, flash_bl
 
     # ------------------------------------------------------------------
     # State helpers
@@ -374,7 +448,8 @@ class OvenController:
         self.oven_temp = self._read_oven_temp()
         if self.oven_temp >= (self.BROIL_HIGH_TEMP + 50):
             self._transition_to(self.STATE_ALARM)
-            self.hardware.set_elements(False, False)
+            self._set_heating_mode(self.HEAT_MODE_OFF)
+            self._set_elements(False, False, reason="alarm")
 
     def _update_control(self, now):
         if (now - self.last_control_update) < self.CONTROL_UPDATE_RATE:
@@ -389,18 +464,20 @@ class OvenController:
                 if self.broil_level == self.BROIL_LEVEL_HIGH
                 else self.BROIL_LOW_TEMP
             )
+            self._set_heating_mode(self.HEAT_MODE_DIRECT)
             if self.oven_temp < target:
-                self.hardware.set_elements(False, True)
+                self._set_elements(False, True, reason="broil control")
             else:
-                self.hardware.set_elements(False, False)
+                self._set_elements(False, False, reason="broil control")
         else:
-            self.hardware.set_elements(False, False)
+            self._set_heating_mode(self.HEAT_MODE_OFF)
+            self._set_elements(False, False)
 
     def _update_display(self, now):
         if (now - self.last_display_update) < self.DISPLAY_UPDATE_RATE:
             return
         self.last_display_update = now
-        self._render_display()
+        self._render_display(now=now)
 
     def _transition_to(self, state):
         previous_state = self.current_state
@@ -662,11 +739,15 @@ class OvenController:
             return
 
         error = self.set_temp - self.oven_temp
+        self._set_heating_mode(self.HEAT_MODE_PID)
         _output, bottom_on = self.pid.update(error, now)
-        self.hardware.set_elements(bottom_on, False)
+        self._set_elements(bottom_on, False, reason="pid control")
 
     def _apply_direct_heating(self, on, now):
-        self.hardware.set_elements(on, False)
+        self._set_heating_mode(self.HEAT_MODE_DIRECT)
+        state_text = "ON" if on else "OFF"
+        print(f"Direct heating request -> bottom element {state_text}")
+        self._set_elements(on, False, reason="direct heating")
         self._reset_pid(now=now, error=self.set_temp - self.oven_temp)
 
     def _reset_pid(self, *, now=None, error=0.0):
