@@ -288,8 +288,19 @@ class OvenController:
             index = (index + step_dir) % len(self.MODE_LIST)
             self.selected_mode = self.MODE_LIST[index]
         elif self.current_state == self.STATE_BAKE:
+            step = self.current_step
+            if step in (5, 25):
+                step_dir = 1 if delta > 0 else -1
+                new_temp = int(round(self.set_temp))
+                for _ in range(abs(delta)):
+                    if step_dir > 0:
+                        new_temp = self._next_multiple(new_temp, step)
+                    else:
+                        new_temp = self._previous_multiple(new_temp, step)
+            else:
+                new_temp = self.set_temp + (delta * step)
             self.set_temp = self._clamp(
-                self.set_temp + (delta * self.current_step),
+                new_temp,
                 self.MIN_SET_TEMP,
                 self.MAX_SET_TEMP,
             )
@@ -478,6 +489,22 @@ class OvenController:
         if value > upper:
             return upper
         return value
+
+    @staticmethod
+    def _next_multiple(value, step):
+        if step <= 0:
+            return value
+        return ((int(value) + step) // step) * step
+
+    @staticmethod
+    def _previous_multiple(value, step):
+        if step <= 0:
+            return value
+        value_int = int(value)
+        remainder = value_int % step
+        if remainder == 0:
+            return value_int - step
+        return value_int - remainder
 
     def _read_oven_temp(self):
         # Placeholder for real MAX6675 reading.
