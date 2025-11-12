@@ -6,6 +6,7 @@ from display_manager import DisplayContext, DisplayManager, Layout
 from hardware import create_hardware
 from pid_controller import PIDController
 from settings_store import SettingsStore
+from simulated_oven import SimulatedOven
 
 print("Oven controller starting...")
 
@@ -73,20 +74,6 @@ class OvenController:
 
     DECIMAL_FLASH_PERIOD = 1.0
 
-    # ------------------------------------------------------------------
-    # Simulated temperature behaviour (used while hardware sensor mocked)
-    # ------------------------------------------------------------------
-    SIM_AMBIENT_TEMP = 75.0
-    SIM_SINGLE_DIRECT_RATE = 3.5  # °F per second contribution when a single element is on
-    SIM_DOUBLE_DIRECT_RATE = 6.0  # °F per second contribution when both elements are on
-    SIM_SINGLE_HEAT_GAIN = 0.6    # Accumulated heat energy per second with a single element
-    SIM_DOUBLE_HEAT_GAIN = 1.4    # Accumulated heat energy per second with both elements
-    SIM_HEAT_LOSS = 0.25          # Heat energy decay rate per second
-    SIM_HEAT_TO_TEMP_RATE = 0.15  # Conversion factor from stored heat energy to temperature rise
-    SIM_COOL_RATE = 0.015         # Cooling rate towards ambient per second
-    SIM_MAX_HEAT = 20.0           # Cap the stored heat energy to keep simulation bounded
-    SIM_MAX_TEMP = 650.0
-
     def __init__(self):
         self.settings = SettingsStore(self.SETTINGS_FILE)
         self.display_brightness = self._clamp_brightness(
@@ -133,9 +120,9 @@ class OvenController:
         self.set_temp = self.DEFAULT_SET_TEMP
         self.step_index = 0
         self.current_step = self.STEP_SEQUENCE[self.step_index]
-        self._mimic_temp = None
-        self._mimic_heat = 0.0
-        self._mimic_last_update = None
+        self.bottom_element_on = False
+        self.top_element_on = False
+        self._simulator = SimulatedOven()
         self.oven_temp = self._read_oven_temp()
         self.last_main_mode = self.STATE_OFF
         self.broil_level = self.BROIL_LEVEL_HIGH
@@ -152,8 +139,6 @@ class OvenController:
 
         self._reset_pid()
 
-        self.bottom_element_on = False
-        self.top_element_on = False
         self.heating_mode = self.HEAT_MODE_OFF
         self.decimal_flash_visible = False
         self.last_decimal_flash_toggle = time.monotonic()
@@ -614,64 +599,11 @@ class OvenController:
     def _read_oven_temp(self):
         """Return a simulated oven temperature while hardware is unavailable."""
 
-        now = time.monotonic()
-
-        if self._mimic_temp is None:
-            # Seed the simulation with an ambient-temperature oven so that
-            # warm-up behaviour is visible as soon as elements begin cycling.
-            self._mimic_temp = self.SIM_AMBIENT_TEMP
-            self._mimic_last_update = now
-            return self._mimic_temp
-
-        if self._mimic_last_update is None:
-            self._mimic_last_update = now
-            return self._mimic_temp
-
-        dt = now - self._mimic_last_update
-        if dt <= 0.0:
-            return self._mimic_temp
-
-        self._mimic_last_update = now
-
-        element_count = int(self.bottom_element_on) + int(self.top_element_on)
-        if element_count == 2:
-            direct_rate = self.SIM_DOUBLE_DIRECT_RATE
-            heat_gain = self.SIM_DOUBLE_HEAT_GAIN
-        elif element_count == 1:
-            direct_rate = self.SIM_SINGLE_DIRECT_RATE
-            heat_gain = self.SIM_SINGLE_HEAT_GAIN
-        else:
-            direct_rate = 0.0
-            heat_gain = 0.0
-
-        # Direct heating pushes the temperature up faster when more elements
-        # are on and the oven is still cooler than the set point.
-        below_set = max(0.0, self.set_temp - self._mimic_temp)
-        direct_delta = direct_rate * dt * (0.25 + (below_set / max(self.set_temp, 1.0)))
-
-        # Track residual heat energy so that the oven continues to climb for a
-        # short time after the elements switch off. Heating with both elements
-        # accumulates more energy which results in a more pronounced overshoot.
-        self._mimic_heat += (heat_gain * dt)
-        self._mimic_heat -= (self.SIM_HEAT_LOSS * dt)
-        if self._mimic_heat < 0.0:
-            self._mimic_heat = 0.0
-        elif self._mimic_heat > self.SIM_MAX_HEAT:
-            self._mimic_heat = self.SIM_MAX_HEAT
-
-        heat_delta = self._mimic_heat * self.SIM_HEAT_TO_TEMP_RATE * dt
-
-        # Passive cooling brings the temperature back towards ambient.
-        cooling_delta = (self._mimic_temp - self.SIM_AMBIENT_TEMP) * self.SIM_COOL_RATE * dt
-
-        new_temp = self._mimic_temp + direct_delta + heat_delta - cooling_delta
-        if new_temp < self.SIM_AMBIENT_TEMP:
-            new_temp = self.SIM_AMBIENT_TEMP
-        elif new_temp > self.SIM_MAX_TEMP:
-            new_temp = self.SIM_MAX_TEMP
-
-        self._mimic_temp = new_temp
-        return self._mimic_temp
+        return self._simulator.read(
+            set_temp=self.set_temp,
+            bottom_on=self.bottom_element_on,
+            top_on=self.top_element_on,
+        )
 
     def _load_setting_float(self, key, default, lower, upper):
         try:
