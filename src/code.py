@@ -39,6 +39,7 @@ class OvenController:
     TEMP_UPDATE_RATE = 0.5
     CONTROL_UPDATE_RATE = 1.0
     LONG_PRESS_TIME = 0.8
+    MODE_SELECT_TIMEOUT = 10.0
 
     BROIL_HIGH_TEMP = 550.0
     BROIL_LOW_TEMP = 450.0
@@ -129,6 +130,7 @@ class OvenController:
 
         self.settings_index = 0
         self.settings_options = self._build_settings_options()
+        self.mode_select_start = None
 
         self.last_button_press_time = None
         self.long_press_handled = False
@@ -154,6 +156,7 @@ class OvenController:
             self._update_main_mode()
             self._poll_encoder()
             self._poll_button(now)
+            self._update_mode_select_timeout(now)
             self._update_temperature(now)
             self._update_control(now)
             self._update_display(now)
@@ -433,10 +436,7 @@ class OvenController:
                     self.step_index = (self.step_index + 1) % len(self.STEP_SEQUENCE)
                     self.current_step = self.STEP_SEQUENCE[self.step_index]
                 elif self.current_state == self.STATE_MODE_SELECT:
-                    if self.selected_mode == self.STATE_SETTINGS:
-                        self._transition_to(self.STATE_SETTINGS)
-                    else:
-                        self._transition_to(self.selected_mode)
+                    self._apply_selected_mode()
                 elif self.current_state == self.STATE_SETTINGS:
                     self._advance_setting_option()
                     self._render_display()
@@ -484,6 +484,10 @@ class OvenController:
     def _transition_to(self, state):
         previous_state = self.current_state
         self.current_state = state
+        if state == self.STATE_MODE_SELECT:
+            self.mode_select_start = time.monotonic()
+        else:
+            self.mode_select_start = None
         self._set_pixel_for_state(state)
         if state == self.STATE_SETTINGS:
             # Ensure brightness is immediately applied when entering settings.
@@ -498,6 +502,23 @@ class OvenController:
     def _save_settings(self):
         if self.settings.dirty:
             self.settings.save_if_dirty()
+
+    def _update_mode_select_timeout(self, now):
+        if self.current_state != self.STATE_MODE_SELECT:
+            return
+        if self.mode_select_start is None:
+            self.mode_select_start = now
+            return
+        if (now - self.mode_select_start) < self.MODE_SELECT_TIMEOUT:
+            return
+        print("Mode select timeout reached; applying selected mode.")
+        self._apply_selected_mode()
+
+    def _apply_selected_mode(self):
+        if self.selected_mode == self.STATE_SETTINGS:
+            self._transition_to(self.STATE_SETTINGS)
+        else:
+            self._transition_to(self.selected_mode)
 
     # ------------------------------------------------------------------
     # Formatting helpers
