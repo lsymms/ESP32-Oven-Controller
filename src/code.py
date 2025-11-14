@@ -8,7 +8,6 @@ from pid_controller import PIDController
 from settings_store import SettingsStore
 from simulated_oven import SimulatedOven
 
-print("Oven controller starting...")
 
 
 class OvenController:
@@ -76,7 +75,13 @@ class OvenController:
     DECIMAL_FLASH_PERIOD = 1.0
 
     def __init__(self):
+        print("Oven controller starting...")
+        print("intializing hardware")
+        self.hardware = create_hardware(0.0)
+
+        print("retrieving settings from json file")
         self.settings = SettingsStore(self.SETTINGS_FILE)
+        
         self.display_brightness = self._clamp_brightness(
             self.settings.get("brightness")
         )
@@ -101,6 +106,7 @@ class OvenController:
             self.PID_WINDOW_DELTA_MAX,
         )
 
+        print("Initializing PID Controller")
         self.pid = PIDController(
             self.pid_kp,
             self.pid_ki,
@@ -111,11 +117,12 @@ class OvenController:
             cycle_time=self.PID_CYCLE_TIME,
         )
 
-        self.hardware = create_hardware(self.display_brightness)
+        print("Initializing Display Manager")
         self.display_manager = DisplayManager(self.hardware.displays)
         self._register_layouts()
         self.display_manager.apply_brightness(self.display_brightness)
 
+        print("Initializing State System")
         self.current_state = self.STATE_OFF
         self.selected_mode = self.STATE_BAKE
         self.set_temp = self.DEFAULT_SET_TEMP

@@ -135,6 +135,12 @@ class Hardware:
                  display_addresses,
                  display_brightness,
                  thermocouple_address=0x67):
+        
+        self.stemma_i2c = busio.I2C(
+            scl=stemma_i2c_scl, sda=stemma_i2c_sda, frequency=10000
+        )
+        self._log_i2c_scan(self.stemma_i2c, label="stemma bus")
+
         self.display_i2c = busio.I2C(
             scl=display_i2c_scl, sda=display_i2c_sda, frequency=100000
         )
@@ -168,10 +174,6 @@ class Hardware:
             brightness=neopixel_brightness,
             auto_write=True,
         )
-        self.stemma_i2c = busio.I2C(
-            scl=stemma_i2c_scl, sda=stemma_i2c_sda, frequency=100000
-        )
-        self._log_i2c_scan(self.stemma_i2c, label="stemma bus")
 
 
     def _log_i2c_scan(self, bus, *, label):
