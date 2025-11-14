@@ -144,7 +144,7 @@ class OvenController:
         self.last_display_update = 0.0
         self.last_temp_update = 0.0
         self.last_control_update = 0.0
-        self.last_encoder_pos = self.hardware.encoder.position
+        self.last_encoder_pos = self.hardware.seesaw_rotary_encoder.position
 
         self._reset_pid()
 
@@ -373,7 +373,7 @@ class OvenController:
             self.last_main_mode = self.current_state
 
     def _poll_encoder(self):
-        position = self.hardware.encoder.position
+        position = self.hardware.seesaw_rotary_encoder.position
         delta = position - self.last_encoder_pos
         if delta == 0:
             return

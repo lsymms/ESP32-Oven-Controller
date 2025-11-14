@@ -6,12 +6,32 @@ import board
 import busio
 import digitalio
 import neopixel
-import rotaryio
 
 import adafruit_mcp9600
 
 from adafruit_debouncer import Debouncer
 from adafruit_ht16k33.segments import Seg14x4
+
+try:
+    from adafruit_seesaw.digitalio import DigitalIO as SeesawDigitalIO
+except ImportError:
+    SeesawDigitalIO = None
+
+try:
+    from adafruit_seesaw.seesaw import Seesaw
+    from adafruit_seesaw.rotaryio import (
+        IncrementalEncoder as SeesawIncrementalEncoder,
+    )
+except ImportError:
+    Seesaw = None
+    SeesawIncrementalEncoder = None
+
+
+class _DummySeesawEncoder:
+    """Fallback encoder that always reports zero."""
+
+    def __init__(self):
+        self.position = 0
 
 
 class RelayPair:
@@ -121,8 +141,6 @@ class Hardware:
     """Aggregate of all hardware peripherals used by the controller."""
 
     def __init__(self, *,
-                 encoder_a,
-                 encoder_b,
                  button_pin,
                  bottom_relay_pin,
                  top_relay_pin,
@@ -134,7 +152,8 @@ class Hardware:
                  stemma_i2c_sda,
                  display_addresses,
                  display_brightness,
-                 thermocouple_address=0x67):
+                 thermocouple_address=0x67,
+                 encoder_address=0x36):
         
         self.stemma_i2c = busio.I2C(
             scl=stemma_i2c_scl, sda=stemma_i2c_sda, frequency=10000
@@ -153,18 +172,10 @@ class Hardware:
         }
         self.displays = DisplayBundle(self.display_i2c, address_map, display_brightness)
         self.thermocouple = None
-        self.thermocouple_address = thermocouple_address
-
-        try:
-            self.encoder = rotaryio.IncrementalEncoder(encoder_a, encoder_b, divisor=4)
-            print("IncrementalEncoder initialized with divisor=4")
-        except TypeError:
-            self.encoder = rotaryio.IncrementalEncoder(encoder_a, encoder_b)
-            print("IncrementalEncoder initialized without divisor")
-
-        button_io = digitalio.DigitalInOut(button_pin)
-        button_io.switch_to_input(pull=digitalio.Pull.UP)
-        self.button = Debouncer(button_io)
+        self.seesaw_rotary_encoder = _DummySeesawEncoder()
+        self._seesaw = None
+        self._init_encoder(encoder_address)
+        self._init_button(button_pin)
 
         self.relays = RelayPair(bottom_relay_pin, top_relay_pin)
 
@@ -175,6 +186,7 @@ class Hardware:
             auto_write=True,
         )
 
+        self._init_thermocouple(thermocouple_address)
 
     def _log_i2c_scan(self, bus, *, label):
         try:
@@ -200,23 +212,66 @@ class Hardware:
 
     def read_thermocouple(self):
         if self.thermocouple is None:
-            self._init_thermocouple() 
-        if self.thermocouple == None:
-            return "ERR"
+            return None
         return self.thermocouple.temperature
 
-    def _init_thermocouple(self):
-        try:
-            self.thermocouple = adafruit_mcp9600.MCP9600(self.stemma_i2c,self.thermocouple_address)
-            print("MCP9600 thermocouple initialized at", hex(self.thermocouple_address))
+    def _init_thermocouple(self, address):
+        delay = 0.25
+        for attempt in range(1, 11):
+            try:
+                self.thermocouple = adafruit_mcp9600.MCP9600(
+                    self.stemma_i2c, address=address
+                )
+                print("MCP9600 thermocouple initialized at", hex(address))
+                return
+            except Exception as error:  # noqa: BLE001 - hardware init failures vary
+                print(f"Thermocouple init attempt {attempt} failed:", error)
+                time.sleep(delay)
+        raise RuntimeError(
+            "MCP9600 thermocouple failed to initialise after 10 attempts"
+        )
+
+    def _init_encoder(self, address):
+        if Seesaw is None or SeesawIncrementalEncoder is None:
+            print(
+                "Adafruit Seesaw library not found; rotary encoder disabled. "
+                "Copy adafruit_seesaw.mpy and its package folder into /lib."
+            )
             return
+        try:
+            self._seesaw = Seesaw(self.display_i2c, addr=address)
+            version = (self._seesaw.get_version() >> 16) & 0xFFFF
+            self.seesaw_rotary_encoder = SeesawIncrementalEncoder(self._seesaw)
+            print(
+                "Seesaw rotary encoder device initialized (version {}) at".format(
+                    version
+                ),
+                hex(address),
+            )
         except Exception as error:  # noqa: BLE001 - hardware init failures vary
             print(
-                "Thermocouple init failed:",
+                "Failed to initialise Seesaw encoder at",
+                hex(address),
+                "->",
                 error,
             )
-        
+            self.seesaw_rotary_encoder = _DummySeesawEncoder()
 
+    def _init_button(self, fallback_pin):
+        if self._seesaw is not None and SeesawDigitalIO is not None:
+            try:
+                seesaw_button = SeesawDigitalIO(self._seesaw, 24)
+                seesaw_button.direction = digitalio.Direction.INPUT
+                seesaw_button.pull = digitalio.Pull.UP
+                self.button = Debouncer(seesaw_button)
+                print("Using Seesaw encoder push button for input")
+                return
+            except Exception as error:
+                print("Failed to init Seesaw button:", error)
+        button_io = digitalio.DigitalInOut(fallback_pin)
+        button_io.switch_to_input(pull=digitalio.Pull.UP)
+        self.button = Debouncer(button_io)
+        print("Using fallback GPIO button input")
 
 def create_hardware(display_brightness):
     """Factory helper that returns a :class:`Hardware` instance."""
@@ -227,8 +282,6 @@ def create_hardware(display_brightness):
         "br": 0x73,
     }
     return Hardware(
-        encoder_a=board.GPIO6,
-        encoder_b=board.GPIO5,
         button_pin=board.GPIO4,
         bottom_relay_pin=board.GPIO10,
         top_relay_pin=board.GPIO11,
@@ -241,4 +294,5 @@ def create_hardware(display_brightness):
         display_addresses=display_addresses,
         display_brightness=display_brightness,
         thermocouple_address=0x67,
+        encoder_address=0x36,
     )
