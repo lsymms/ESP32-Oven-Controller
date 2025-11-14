@@ -620,7 +620,7 @@ class OvenController:
     def _read_oven_temp(self):
         """Return a simulated oven temperature while hardware is unavailable."""
         temp_reading = self.hardware.read_thermocouple()
-        print ("Temperature reading: " + temp_reading)
+        print(f"Temperature reading: {temp_reading}")
 
         return self._simulator.read(
             set_temp=self.set_temp,
