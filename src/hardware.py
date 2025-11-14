@@ -1,10 +1,14 @@
 """Hardware initialization helpers for the oven controller."""
 
+import time
+
 import board
 import busio
 import digitalio
 import neopixel
 import rotaryio
+
+import adafruit_mcp9600
 
 from adafruit_debouncer import Debouncer
 from adafruit_ht16k33.segments import Seg14x4
@@ -124,18 +128,26 @@ class Hardware:
                  top_relay_pin,
                  neopixel_pin,
                  neopixel_brightness,
-                 i2c_scl,
-                 i2c_sda,
+                 display_i2c_scl,
+                 display_i2c_sda,
+                 stemma_i2c_scl,
+                 stemma_i2c_sda,
                  display_addresses,
-                 display_brightness):
-        self.i2c = busio.I2C(scl=i2c_scl, sda=i2c_sda, frequency=100000)
+                 display_brightness,
+                 thermocouple_address=0x67):
+        self.display_i2c = busio.I2C(
+            scl=display_i2c_scl, sda=display_i2c_sda, frequency=100000
+        )
+        self._log_i2c_scan(self.display_i2c, label="display bus")
         address_map = {
             "tl": display_addresses["tl"],
             "tr": display_addresses["tr"],
             "bl": display_addresses["bl"],
             "br": display_addresses["br"],
         }
-        self.displays = DisplayBundle(self.i2c, address_map, display_brightness)
+        self.displays = DisplayBundle(self.display_i2c, address_map, display_brightness)
+        self.thermocouple = None
+        self.thermocouple_address = thermocouple_address
 
         try:
             self.encoder = rotaryio.IncrementalEncoder(encoder_a, encoder_b, divisor=4)
@@ -156,9 +168,52 @@ class Hardware:
             brightness=neopixel_brightness,
             auto_write=True,
         )
+        self.stemma_i2c = busio.I2C(
+            scl=stemma_i2c_scl, sda=stemma_i2c_sda, frequency=100000
+        )
+        self._log_i2c_scan(self.stemma_i2c, label="stemma bus")
+
+
+    def _log_i2c_scan(self, bus, *, label):
+        try:
+            while not bus.try_lock():
+                pass
+            devices = bus.scan()
+        except Exception as error:  # noqa: BLE001 - bus issues vary
+            print(f"I2C scan failed on {label}:", error)
+            devices = None
+        finally:
+            try:
+                bus.unlock()
+            except Exception:
+                pass
+        if devices:
+            formatted = ", ".join(hex(address) for address in devices)
+            print(f"I2C devices detected on {label}: {formatted}")
+        else:
+            print(f"I2C scan found no devices on {label}.")
 
     def set_elements(self, bottom_on, top_on):
         self.relays.set(bottom_on, top_on)
+
+    def read_thermocouple(self):
+        if self.thermocouple is None:
+            self._init_thermocouple() 
+        if self.thermocouple == None:
+            return "ERR"
+        return self.thermocouple.temperature
+
+    def _init_thermocouple(self):
+        try:
+            self.thermocouple = adafruit_mcp9600.MCP9600(self.stemma_i2c,self.thermocouple_address)
+            print("MCP9600 thermocouple initialized at", hex(self.thermocouple_address))
+            return
+        except Exception as error:  # noqa: BLE001 - hardware init failures vary
+            print(
+                "Thermocouple init failed:",
+                error,
+            )
+        
 
 
 def create_hardware(display_brightness):
@@ -177,8 +232,11 @@ def create_hardware(display_brightness):
         top_relay_pin=board.GPIO11,
         neopixel_pin=board.NEOPIXEL,
         neopixel_brightness=0.05,
-        i2c_scl=board.GPIO39,
-        i2c_sda=board.GPIO47,
+        display_i2c_scl=board.GPIO39,
+        display_i2c_sda=board.GPIO47,
+        stemma_i2c_scl=board.GPIO9,
+        stemma_i2c_sda=board.GPIO8,
         display_addresses=display_addresses,
         display_brightness=display_brightness,
+        thermocouple_address=0x67,
     )

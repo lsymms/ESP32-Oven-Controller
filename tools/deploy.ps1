@@ -88,7 +88,7 @@ $robocopyArgs += @(
 # Exclude junk and caches
 $robocopyArgs += @(
   "/XD", ".git", "__pycache__", ".mypy_cache", ".ruff_cache", ".venv",
-  "/XF", "*.pyc", "*.mpy", "Thumbs.db", ".DS_Store"
+  "/XF", "*.pyc", "Thumbs.db", ".DS_Store"
 )
 
 # Logging
