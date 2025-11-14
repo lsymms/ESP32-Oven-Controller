@@ -69,8 +69,10 @@ class SimulatedOven:
             direct_rate = 0.0
             heat_gain = 0.0
 
-        below_set = max(0.0, set_temp - self._temperature)
-        direct_delta = direct_rate * dt * (0.25 + (below_set / max(set_temp, 1.0)))
+        if element_count:
+            direct_delta = direct_rate * dt
+        else:
+            direct_delta = 0.0
 
         self._stored_heat += heat_gain * dt
         self._stored_heat -= self.heat_loss * dt
