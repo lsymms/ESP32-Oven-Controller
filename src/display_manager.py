@@ -31,6 +31,7 @@ class DisplayContext:
         flash_tr_decimals=False,
         flash_br_decimals=False,
         decimal_visible=False,
+        temp_from_simulator=False,
     ):
         self.state = state
         self.set_temp = set_temp
@@ -49,6 +50,7 @@ class DisplayContext:
         self.flash_tr_decimals = flash_tr_decimals
         self.flash_br_decimals = flash_br_decimals
         self.decimal_visible = decimal_visible
+        self.temp_from_simulator = temp_from_simulator
 
 
 class DisplayManager:

@@ -49,6 +49,10 @@ class OvenController:
         BROIL_LEVEL_LOW: "L-LO",
         BROIL_LEVEL_HIGH: "L-HI",
     }
+    BROIL_LEVEL_LABELS_SIM = {
+        BROIL_LEVEL_LOW: "M-LO",
+        BROIL_LEVEL_HIGH: "M-HI",
+    }
 
     HEAT_MODE_OFF = "off"
     HEAT_MODE_DIRECT = "direct"
@@ -131,6 +135,7 @@ class OvenController:
         self.bottom_element_on = False
         self.top_element_on = False
         self._simulator = SimulatedOven()
+        self.temp_from_simulator = True
         self.oven_temp = self._read_oven_temp()
         self.last_main_mode = self.STATE_OFF
         self.broil_level = self.BROIL_LEVEL_HIGH
@@ -180,6 +185,12 @@ class OvenController:
         def mode_label(context):
             return context.mode_label(context.mode_sel)
 
+        def bake_label(context):
+            return context.mode_label(context.mode_sel)
+
+        def broil_label(context):
+            return context.mode_label(context.mode_sel)
+
         def show_temp(context):
             return context.fmt_temp(context.oven_temp)
 
@@ -211,7 +222,7 @@ class OvenController:
         self.display_manager.register_layout(
             self.STATE_BAKE,
             Layout(
-                tl="BAKE",
+                tl=bake_label,
                 tr=show_set_temp,
                 bl=bake_step,
                 br=show_temp,
@@ -221,7 +232,7 @@ class OvenController:
         self.display_manager.register_layout(
             self.STATE_BROIL,
             Layout(
-                tl="BROI",
+                tl=broil_label,
                 tr=show_broil_level,
                 bl="    ",
                 br=show_temp,
@@ -286,6 +297,7 @@ class OvenController:
             flash_tr_decimals=flash_tr,
             flash_br_decimals=flash_br,
             decimal_visible=self.decimal_flash_visible,
+            temp_from_simulator=self.temp_from_simulator,
         )
         if force:
             # Reset cached display values so that the first render prints to all.
@@ -384,6 +396,7 @@ class OvenController:
             step_dir = 1 if delta > 0 else -1
             index = (index + step_dir) % len(self.MODE_LIST)
             self.selected_mode = self.MODE_LIST[index]
+            self.mode_select_start = time.monotonic()
         elif self.current_state == self.STATE_BAKE:
             step = self.current_step
             if step in (5, 25):
@@ -537,7 +550,8 @@ class OvenController:
         except (TypeError, ValueError):
             return "Err "
         numeric = self._clamp(numeric, 0, 999)
-        return "{:03d}F".format(numeric)[-4:]
+        suffix = "S" if getattr(self, "temp_from_simulator", True) else "F"
+        return "{:03d}{}".format(numeric, suffix)[-4:]
 
     def _fmt_brightness(self, value):
         try:
@@ -579,15 +593,26 @@ class OvenController:
         if state == self.STATE_OFF:
             return "OFF "
         if state == self.STATE_BAKE:
+            if getattr(self, "temp_from_simulator", True):
+                return "BSIM"
             return "BAKE"
         if state == self.STATE_BROIL:
+            if getattr(self, "temp_from_simulator", True):
+                return "BRSI"
             return "BROI"
         if state == self.STATE_SETTINGS:
             return "SEt "
         return "    "
 
     def _broil_label(self, level):
-        return self.BROIL_LEVEL_LABELS.get(level, self.BROIL_LEVEL_LABELS[self.BROIL_LEVEL_HIGH])
+        if getattr(self, "temp_from_simulator", True):
+            return self.BROIL_LEVEL_LABELS_SIM.get(
+                level, self.BROIL_LEVEL_LABELS_SIM[self.BROIL_LEVEL_HIGH]
+            )
+        return self.BROIL_LEVEL_LABELS.get(
+            level, self.BROIL_LEVEL_LABELS[self.BROIL_LEVEL_HIGH]
+        )
+        
 
     # ------------------------------------------------------------------
     # Utility helpers
@@ -625,10 +650,23 @@ class OvenController:
         return value_int - remainder
 
     def _read_oven_temp(self):
-        """Return a simulated oven temperature while hardware is unavailable."""
-        temp_reading = self.hardware.read_thermocouple()
-        print(f"Temperature reading: {temp_reading}")
+        """Return the best available oven temperature in Fahrenheit."""
 
+        temp_f = None
+        temp_reading = self.hardware.read_thermocouple()
+        if temp_reading is not None:
+            try:
+                temp_c = float(temp_reading)
+            except (TypeError, ValueError):
+                temp_c = None
+            if temp_c is not None and temp_c > 0:
+                temp_f = (temp_c * 9.0 / 5.0) + 32.0
+
+        if temp_f is not None:
+            self.temp_from_simulator = False
+            return temp_f
+
+        self.temp_from_simulator = True
         return self._simulator.read(
             set_temp=self.set_temp,
             bottom_on=self.bottom_element_on,
