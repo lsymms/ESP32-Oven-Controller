@@ -72,7 +72,7 @@ class OvenController:
     PID_INTEGRAL_LIMIT = 1000.0
     PID_CYCLE_TIME = 5.0
 
-    DECIMAL_FLASH_PERIOD = 1.0
+    DECIMAL_FLASH_PERIOD = .25
 
     def __init__(self):
         print("Oven controller starting...")
