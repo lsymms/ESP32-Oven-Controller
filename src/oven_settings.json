@@ -1,1 +1,1 @@
-{"pid_kp": 0.05, "pid_window_delta": 15.0, "pid_kd": 0.1, "brightness": 0.00, "pid_ki": 0.001}
+{"pid_kp": 0.05, "pid_window_delta": 50.0, "pid_kd": 0.1, "brightness": 0.00, "pid_ki": 0.0005}

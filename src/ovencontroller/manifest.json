@@ -1,0 +1,29 @@
+{
+    "version":  "0.0.5",
+    "files":  [
+                  {
+                      "path":  "display_manager.py"
+                  },
+                  {
+                      "path":  "hardware.py"
+                  },
+                  {
+                      "path":  "ovencontroller.py"
+                  },
+                  {
+                      "path":  "pid_controller.py"
+                  },
+                  {
+                      "path":  "settings_store.py"
+                  },
+                  {
+                      "path":  "simulated_oven.py"
+                  },
+                  {
+                      "path":  "updater.py"
+                  },
+                  {
+                      "path":  "__init__.py"
+                  }
+              ]
+}

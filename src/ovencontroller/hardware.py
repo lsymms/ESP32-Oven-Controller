@@ -44,8 +44,9 @@ class RelayPair:
         self._top.switch_to_output(value=False)
 
     def set(self, bottom_on, top_on):
-        self._bottom.value = bool(bottom_on)
-        self._top.value = bool(top_on)
+        # SSR inputs are active-low.
+        self._bottom.value = not bool(bottom_on)
+        self._top.value = not bool(top_on)
 
 
 class DisplayBundle:

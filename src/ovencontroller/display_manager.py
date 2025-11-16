@@ -2,7 +2,7 @@
 
 from collections import namedtuple
 
-from hardware import DisplayBundle
+from .hardware import DisplayBundle
 
 
 Layout = namedtuple("Layout", "tl tr bl br")
@@ -32,6 +32,7 @@ class DisplayContext:
         flash_br_decimals=False,
         decimal_visible=False,
         temp_from_simulator=False,
+        scroll_overrides=None,
     ):
         self.state = state
         self.set_temp = set_temp
@@ -51,6 +52,7 @@ class DisplayContext:
         self.flash_br_decimals = flash_br_decimals
         self.decimal_visible = decimal_visible
         self.temp_from_simulator = temp_from_simulator
+        self.scroll_overrides = scroll_overrides or {}
 
 
 class DisplayManager:
@@ -75,6 +77,12 @@ class DisplayManager:
             "bl": self._resolve(layout.bl, context),
             "br": self._resolve(layout.br, context),
         }
+        overrides = getattr(context, "scroll_overrides", None)
+        if overrides:
+            for key in ("tl", "tr"):
+                value = overrides.get(key)
+                if value is not None:
+                    texts[key] = value
         texts = self._apply_decimal_flash(texts, context)
         self._displays.show_texts(texts)
 
