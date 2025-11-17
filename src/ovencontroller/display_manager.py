@@ -94,6 +94,9 @@ class DisplayManager:
     def apply_brightness(self, value):
         self._displays.apply_brightness(value)
 
+    def render_texts(self, mapping):
+        self._displays.show_texts(mapping)
+
     def _apply_decimal_flash(self, texts, context):
         result = dict(texts)
         decimal_visible = getattr(context, "decimal_visible", False)

@@ -178,6 +178,8 @@ class OvenController:
         self.update_status = self._current_version or "TE N"
         self.update_choice = "TE N"
         self._pending_reset = False
+        self.last_activity = time.monotonic()
+        self.idle_display_active = False
 
         self.last_button_press_time = None
         self.long_press_handled = False
@@ -206,6 +208,7 @@ class OvenController:
             self._update_mode_select_timeout(now)
             self._update_temperature(now)
             self._update_control(now)
+            self._check_idle_display(now)
             self._update_display(now)
             time.sleep(0.002)
 
@@ -315,6 +318,14 @@ class OvenController:
         ) = self._current_setting_display()
 
         scroll_overrides = self._current_scroll_overrides(now)
+
+        if self.idle_display_active:
+            if force:
+                self.hardware.displays.reset_cache()
+            self.display_manager.render_texts(
+                {"tl": "    ", "tr": "   .", "bl": "    ", "br": "    "}
+            )
+            return
 
         context = DisplayContext(
             state=self.current_state,
@@ -512,6 +523,7 @@ class OvenController:
         if delta == 0:
             return
         self.last_encoder_pos = position
+        self._record_activity()
 
         if self.current_state == self.STATE_MODE_SELECT:
             index = self.MODE_LIST.index(self.selected_mode)
@@ -550,6 +562,7 @@ class OvenController:
         button.update()
 
         if button.fell:
+            self._record_activity()
             self.last_button_press_time = now
             self.long_press_handled = False
 
@@ -573,6 +586,7 @@ class OvenController:
             self.long_press_handled = True
 
         if button.rose and self.last_button_press_time is not None:
+            self._record_activity()
             if not self.long_press_handled:
                 if self.current_state in (self.STATE_BAKE, self.STATE_OFF, self.STATE_BROIL):
                     self.step_index = (self.step_index + 1) % len(self.STEP_SEQUENCE)
@@ -1030,3 +1044,21 @@ def run():
 
 if __name__ == "__main__":
     run()
+    def _record_activity(self):
+        self.last_activity = time.monotonic()
+        if self.idle_display_active:
+            self.idle_display_active = False
+            self._render_display(force=True)
+
+    def _check_idle_display(self, now):
+        if (
+            self.current_state == self.STATE_OFF
+            and (now - self.last_activity) >= 60
+        ):
+            if not self.idle_display_active:
+                self.idle_display_active = True
+                self._render_display(force=True)
+        else:
+            if self.idle_display_active:
+                self.idle_display_active = False
+                self._render_display(force=True)
