@@ -46,7 +46,7 @@ class OTAUpdater:
         except OSError:
             return "0"
 
-    def check_for_update(self, *, current_version):
+    def check_for_update(self, *, current_version, force=False):
         if not self._ensure_session():
             self._set_status("NOWF")
             self._message("WiFi unavailable for update")
@@ -63,7 +63,7 @@ class OTAUpdater:
             self._set_status("NODT")
             self._message("Update error: no version data")
             return False
-        if remote_version == current_version:
+        if remote_version == current_version and not force:
             self._set_status("CURR")
             self._message("up to date")
             return False

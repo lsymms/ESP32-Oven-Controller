@@ -175,9 +175,10 @@ class OvenController:
             message_callback=self._start_scroll_message,
         )
         self._current_version = self.updater.read_local_version()
-        self._version_text = f"V{self._current_version or '0.0.0'}"[:4]
+        self._set_version_text(self._current_version)
         self.update_status = self._current_version or "TE N"
         self.update_choice = "TE N"
+        self.force_update_choice = "TE N"
         self._pending_reset = False
         self.last_activity = time.monotonic()
         self.idle_display_active = False
@@ -239,6 +240,9 @@ class OvenController:
         def show_broil_level(context):
             return context.broil_label(context.broil_level)
 
+        def show_version(context):
+            return context.version_text
+
         def show_setting_label_top(context):
             return context.setting_label_top or "    "
 
@@ -253,13 +257,10 @@ class OvenController:
             Layout(
                 tl="OFF ",
                 tr="    ",
-                bl="    ",
+                bl=show_version,
                 br=show_temp,
             ),
         )
-
-        def show_version(context):
-            return context.version_text
 
         self.display_manager.register_layout(
             self.STATE_BAKE,
@@ -513,6 +514,7 @@ class OvenController:
         self.update_status = text
         if self.current_state == self.STATE_SETTINGS:
             self._render_display()
+        print("Update status ->", self.update_status)
 
     # ------------------------------------------------------------------
     # State helpers
@@ -919,6 +921,15 @@ class OvenController:
                 "formatter": lambda _value, inst=self: inst.update_status,
                 "on_change": self._on_update_choice_changed,
             },
+            {
+                "key": "_update_force",
+                "label_top": "UPDA",
+                "label_bottom": "FORC",
+                "attr": "force_update_choice",
+                "choices": ["TE N", "TE Y"],
+                "formatter": lambda value: value,
+                "on_change": self._on_force_update_choice_changed,
+            },
         ]
 
     def _on_brightness_changed(self, value):
@@ -1012,21 +1023,31 @@ class OvenController:
                 self.idle_display_active = False
                 self._render_display(force=True)
 
-    def _handle_update_setting(self, delta):
+    def _set_version_text(self, version):
+        full = version or "0.0.0"
+        display = f"{full.upper()}"
+        self._version_text = display
+        print(f"Version text: display='{display}' full='{full}'")
+
+    def _handle_update_setting(self, delta, *, force=False):
         if delta == 0:
             return
         self.update_choice = "TE N"
+        self.force_update_choice = "TE N"
         self._set_update_status("CHK ")
         self._render_display()
         new_version = self.updater.check_for_update(
-            current_version=self._current_version
+            current_version=self._current_version,
+            force=force,
         )
         if new_version:
             self._pending_reset = True
             self._current_version = new_version
+            self._set_version_text(new_version)
             self._set_update_status(new_version)
         else:
             self._current_version = self.updater.read_local_version()
+            self._set_version_text(self._current_version)
             self._set_update_status(self._current_version or "CURR")
         self._render_display()
 
@@ -1034,6 +1055,11 @@ class OvenController:
         self.update_choice = value
         if value.endswith("Y"):
             self._handle_update_setting(1)
+
+    def _on_force_update_choice_changed(self, value):
+        self.force_update_choice = value
+        if value.endswith("Y"):
+            self._handle_update_setting(1, force=True)
 
     def _update_bake_control(self, now):
         lower_bound = self.set_temp - self.pid_window_delta

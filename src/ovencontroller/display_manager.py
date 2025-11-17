@@ -33,6 +33,7 @@ class DisplayContext:
         decimal_visible=False,
         temp_from_simulator=False,
         scroll_overrides=None,
+        version_text="",
     ):
         self.state = state
         self.set_temp = set_temp
@@ -53,6 +54,7 @@ class DisplayContext:
         self.decimal_visible = decimal_visible
         self.temp_from_simulator = temp_from_simulator
         self.scroll_overrides = scroll_overrides or {}
+        self.version_text = version_text or ""
 
 
 class DisplayManager:
