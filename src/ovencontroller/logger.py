@@ -16,7 +16,9 @@ class Logger:
         if not self.enabled:
             return
         try:
+            print("Attemptinging to open log file ", self.logfile)
             self._file = open(self.logfile, "a")
+            self.info("Logfile initiated")
         except OSError:
             self._file = None
             self.enabled = False
