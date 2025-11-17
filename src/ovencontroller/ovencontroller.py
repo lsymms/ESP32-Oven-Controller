@@ -267,7 +267,7 @@ class OvenController:
             Layout(
                 tl=bake_label,
                 tr=show_set_temp,
-                bl=show_version,
+                bl=bake_step,
                 br=show_temp,
             ),
         )
