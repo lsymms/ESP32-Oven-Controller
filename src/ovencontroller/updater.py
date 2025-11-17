@@ -9,6 +9,8 @@ import adafruit_requests
 import socketpool
 import wifi
 
+from .logger import logger
+
 
 class OTAUpdater:
     """Handle Wi-Fi connection and manifest-driven updates for the oven controller."""
@@ -207,4 +209,4 @@ class OTAUpdater:
             with open(self.local_version_path, "w") as file:
                 file.write(version)
         except OSError as error:
-            print("Failed to update local version:", error)
+            logger.error("Failed to update local version:", error)

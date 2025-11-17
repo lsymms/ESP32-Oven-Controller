@@ -1,11 +1,14 @@
 {
-    "version":  "0.2.0",
+    "version":  "0.2.1",
     "files":  [
                   {
                       "path":  "display_manager.py"
                   },
                   {
                       "path":  "hardware.py"
+                  },
+                  {
+                      "path":  "logger.py"
                   },
                   {
                       "path":  "ovencontroller.py"

@@ -10,6 +10,7 @@ from .pid_controller import PIDController
 from .settings_store import SettingsStore
 from .simulated_oven import SimulatedOven
 from .updater import OTAUpdater
+from .logger import logger
 
 
 
@@ -91,11 +92,11 @@ class OvenController:
     SCROLL_SPEED_MAX = 1.0
 
     def __init__(self):
-        print("Oven controller starting...")
-        print("intializing hardware")
+        logger.info("Oven controller starting...")
+        logger.info("intializing hardware")
         self.hardware = create_hardware(0.0)
 
-        print("retrieving settings from json file")
+        logger.info("retrieving settings from json file")
         self.settings = SettingsStore(self.SETTINGS_FILE)
         
         self.display_brightness = self._clamp_brightness(
@@ -129,7 +130,7 @@ class OvenController:
             self.PID_WINDOW_DELTA_MAX,
         )
 
-        print("Initializing PID Controller")
+        logger.info("Initializing PID Controller")
         self.pid = PIDController(
             self.pid_kp,
             self.pid_ki,
@@ -140,12 +141,12 @@ class OvenController:
             cycle_time=self.PID_CYCLE_TIME,
         )
 
-        print("Initializing Display Manager")
+        logger.info("Initializing Display Manager")
         self.display_manager = DisplayManager(self.hardware.displays)
         self._register_layouts()
         self.display_manager.apply_brightness(self.display_brightness)
 
-        print("Initializing State System")
+        logger.info("Initializing State System")
         self.current_state = self.STATE_OFF
         self.selected_mode = self.STATE_BAKE
         self.set_temp = self.DEFAULT_SET_TEMP
@@ -201,7 +202,7 @@ class OvenController:
         self._render_display(force=True)
 
     def run(self):
-        print("Init complete; entering main loop.")
+        logger.info("Init complete; entering main loop.")
         while True:
             now = time.monotonic()
             self._update_main_mode()
@@ -388,7 +389,7 @@ class OvenController:
                 f"top={'ON' if top_on else 'OFF'}",
             ]
             prefix = f"Setting elements ({reason})" if reason else "Setting elements"
-            print(f"{prefix}: {', '.join(state_parts)}")
+            logger.info(prefix + ":", ", ".join(state_parts))
         self.bottom_element_on = bottom_on
         self.top_element_on = top_on
         self.hardware.set_elements(bottom_on, top_on)
@@ -396,7 +397,7 @@ class OvenController:
     def _set_heating_mode(self, mode):
         if mode == self.heating_mode:
             return
-        print(
+        logger.info(
             "Heating mode change:",
             self.heating_mode.upper(),
             "->",
@@ -514,7 +515,7 @@ class OvenController:
         self.update_status = text
         if self.current_state == self.STATE_SETTINGS:
             self._render_display()
-        print("Update status ->", self.update_status)
+        logger.info("Update status ->", self.update_status)
 
     # ------------------------------------------------------------------
     # State helpers
@@ -674,7 +675,7 @@ class OvenController:
             return
         if (now - self.mode_select_start) < self.MODE_SELECT_TIMEOUT:
             return
-        print("Mode select timeout reached; applying selected mode.")
+        logger.info("Mode select timeout reached; applying selected mode.")
         self._apply_selected_mode()
 
     def _apply_selected_mode(self):
@@ -1027,7 +1028,7 @@ class OvenController:
         full = version or "0.0.0"
         display = f"{full.upper()}"
         self._version_text = display
-        print(f"Version text: display='{display}' full='{full}'")
+        logger.info(f"Version text set to '{display}' (full '{full}')")
 
     def _handle_update_setting(self, delta, *, force=False):
         if delta == 0:
