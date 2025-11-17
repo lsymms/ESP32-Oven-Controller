@@ -175,6 +175,7 @@ class OvenController:
             message_callback=self._start_scroll_message,
         )
         self._current_version = self.updater.read_local_version()
+        self._version_text = f"V{self._current_version or '0.0.0'}"[:4]
         self.update_status = self._current_version or "TE N"
         self.update_choice = "TE N"
         self._pending_reset = False
@@ -257,12 +258,15 @@ class OvenController:
             ),
         )
 
+        def show_version(context):
+            return context.version_text
+
         self.display_manager.register_layout(
             self.STATE_BAKE,
             Layout(
                 tl=bake_label,
                 tr=show_set_temp,
-                bl=bake_step,
+                bl=show_version,
                 br=show_temp,
             ),
         )
@@ -347,6 +351,7 @@ class OvenController:
             decimal_visible=self.decimal_flash_visible,
             temp_from_simulator=self.temp_from_simulator,
             scroll_overrides=scroll_overrides,
+            version_text=self._version_text,
         )
         if force:
             # Reset cached display values so that the first render prints to all.
