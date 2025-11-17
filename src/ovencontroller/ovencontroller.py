@@ -988,6 +988,25 @@ class OvenController:
 
         return (label_top, label_bottom, formatted_value)
 
+    def _record_activity(self):
+        self.last_activity = time.monotonic()
+        if self.idle_display_active:
+            self.idle_display_active = False
+            self._render_display(force=True)
+
+    def _check_idle_display(self, now):
+        if (
+            self.current_state == self.STATE_OFF
+            and (now - self.last_activity) >= 60
+        ):
+            if not self.idle_display_active:
+                self.idle_display_active = True
+                self._render_display(force=True)
+        else:
+            if self.idle_display_active:
+                self.idle_display_active = False
+                self._render_display(force=True)
+
     def _handle_update_setting(self, delta):
         if delta == 0:
             return
@@ -1044,21 +1063,3 @@ def run():
 
 if __name__ == "__main__":
     run()
-    def _record_activity(self):
-        self.last_activity = time.monotonic()
-        if self.idle_display_active:
-            self.idle_display_active = False
-            self._render_display(force=True)
-
-    def _check_idle_display(self, now):
-        if (
-            self.current_state == self.STATE_OFF
-            and (now - self.last_activity) >= 60
-        ):
-            if not self.idle_display_active:
-                self.idle_display_active = True
-                self._render_display(force=True)
-        else:
-            if self.idle_display_active:
-                self.idle_display_active = False
-                self._render_display(force=True)
