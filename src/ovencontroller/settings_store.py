@@ -4,6 +4,8 @@ import errno
 import json
 import os
 
+from .logger import logger
+
 DEFAULT_SETTINGS = {
     "brightness": 0.0,
     "pid_kp": 0.05,
@@ -39,22 +41,26 @@ def save_settings(settings, path):
     payload = {key: settings.get(key, DEFAULT_SETTINGS.get(key)) for key in DEFAULT_SETTINGS}
 
     temp_path = path + ".tmp"
-    print("attempting to save settings to temp file " + temp_path + " and replace setting sfile " + path)
+    logger.info(
+        "attempting to save settings to temp file",
+        temp_path,
+        "and replace setting file",
+        path,
+    )
     with open(temp_path, "w") as file_handle:
         json.dump(payload, file_handle)
         file_handle.flush()
-        print("finished writing settings to temp " + temp_path)
+        logger.info("finished writing settings to temp", temp_path)
 
     try:
         os.rename(temp_path, path)
-        print("finished replacing settings file " + path)
+        logger.info("finished replacing settings file", path)
     except OSError as error:
-        print("failed to rename " + temp_path + " to " + path)
+        logger.error("failed to rename", temp_path, "to", path)
         # Best-effort cleanup on failure; leave temp file if removal fails.
         try:
             os.remove(temp_path)
-            
-            print("cleaned settings temp file" + temp_path)
+            logger.info("cleaned settings temp file", temp_path)
         except OSError:
             pass
         raise error
@@ -89,12 +95,12 @@ class SettingsStore:
             save_settings(self._data, self._path)
         except OSError as error:
             if error.errno in (errno.EROFS, errno.EPERM, errno.EACCES):
-                print("Failed to save settings (read-only filesystem):", error)
+                logger.warn("Failed to save settings (read-only filesystem):", error)
                 self._dirty = False
                 return False
-            print("Failed to save settings:", error)
+            logger.error("Failed to save settings:", error)
             return False
         else:
             self._dirty = False
-            print("Settings saved.")
+            logger.info("Settings saved.")
             return True

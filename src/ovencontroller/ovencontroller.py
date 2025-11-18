@@ -1025,8 +1025,9 @@ class OvenController:
                 self._render_display(force=True)
 
     def _set_version_text(self, version):
-        full = version or "0.0.0"
-        display = f"{full.upper()}"
+        full = (version or "0.0.0").upper()
+        display = f"V{full}"
+        display = display[:4].ljust(4)
         self._version_text = display
         logger.info(f"Version text set to '{display}' (full '{full}')")
 

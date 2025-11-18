@@ -12,6 +12,8 @@ import adafruit_mcp9600
 from adafruit_debouncer import Debouncer
 from adafruit_ht16k33.segments import Seg14x4
 
+from .logger import logger
+
 try:
     from adafruit_seesaw.digitalio import DigitalIO as SeesawDigitalIO
 except ImportError:
@@ -67,10 +69,10 @@ class DisplayBundle:
             display.brightness = self._brightness
             display.fill(0)
             self._displays[key] = display
-            print("Display", label, "found at", hex(address))
+            logger.info("Display", label, "found at", hex(address))
         except Exception as error:  # noqa: BLE001 - hardware errors are opaque
             self._displays[key] = None
-            print("Display", label, "NOT found at", hex(address), "->", error)
+            logger.warn("Display", label, "NOT found at", hex(address), "->", error)
 
     def _init_all(self):
         for key, address in self._addresses.items():
@@ -84,7 +86,7 @@ class DisplayBundle:
             try:
                 display.brightness = value
             except OSError as error:
-                print("Display brightness set error:", error)
+                logger.warn("Display brightness set error:", error)
 
     def show_texts(self, mapping):
         for key, text in mapping.items():
@@ -129,9 +131,9 @@ class DisplayBundle:
             return
         try:
             display.print(text)
-            print("Updated", key.upper(), "display to", text)
+            logger.info("Updated", key.upper(), "display to", text)
         except OSError as error:
-            print("Display I2C error on", key.upper(), ":", error)
+            logger.warn("Display I2C error on", key.upper(), ":", error)
             # Attempt to reinitialise just this display so that future
             # updates have a chance to recover.
             address = self._addresses[key]
@@ -195,7 +197,7 @@ class Hardware:
                 pass
             devices = bus.scan()
         except Exception as error:  # noqa: BLE001 - bus issues vary
-            print(f"I2C scan failed on {label}:", error)
+            logger.warn(f"I2C scan failed on {label}:", error)
             devices = None
         finally:
             try:
@@ -204,9 +206,9 @@ class Hardware:
                 pass
         if devices:
             formatted = ", ".join(hex(address) for address in devices)
-            print(f"I2C devices detected on {label}: {formatted}")
+            logger.info(f"I2C devices detected on {label}: {formatted}")
         else:
-            print(f"I2C scan found no devices on {label}.")
+            logger.info(f"I2C scan found no devices on {label}.")
 
     def set_elements(self, bottom_on, top_on):
         self.relays.set(bottom_on, top_on)
@@ -223,10 +225,10 @@ class Hardware:
                 self.thermocouple = adafruit_mcp9600.MCP9600(
                     self.stemma_i2c, address=address
                 )
-                print("MCP9600 thermocouple initialized at", hex(address))
+                logger.info("MCP9600 thermocouple initialized at", hex(address))
                 return
             except Exception as error:  # noqa: BLE001 - hardware init failures vary
-                print(f"Thermocouple init attempt {attempt} failed:", error)
+                logger.warn(f"Thermocouple init attempt {attempt} failed:", error)
                 time.sleep(delay)
         raise RuntimeError(
             "MCP9600 thermocouple failed to initialise after 10 attempts"
@@ -234,7 +236,7 @@ class Hardware:
 
     def _init_encoder(self, address):
         if Seesaw is None or SeesawIncrementalEncoder is None:
-            print(
+            logger.warn(
                 "Adafruit Seesaw library not found; rotary encoder disabled. "
                 "Copy adafruit_seesaw.mpy and its package folder into /lib."
             )
@@ -243,14 +245,14 @@ class Hardware:
             self._seesaw = Seesaw(self.display_i2c, addr=address)
             version = (self._seesaw.get_version() >> 16) & 0xFFFF
             self.seesaw_rotary_encoder = SeesawIncrementalEncoder(self._seesaw)
-            print(
+            logger.info(
                 "Seesaw rotary encoder device initialized (version {}) at".format(
                     version
                 ),
                 hex(address),
             )
         except Exception as error:  # noqa: BLE001 - hardware init failures vary
-            print(
+            logger.warn(
                 "Failed to initialise Seesaw encoder at",
                 hex(address),
                 "->",
@@ -265,14 +267,14 @@ class Hardware:
                 seesaw_button.direction = digitalio.Direction.INPUT
                 seesaw_button.pull = digitalio.Pull.UP
                 self.button = Debouncer(seesaw_button)
-                print("Using Seesaw encoder push button for input")
+                logger.info("Using Seesaw encoder push button for input")
                 return
             except Exception as error:
-                print("Failed to init Seesaw button:", error)
+                logger.warn("Failed to init Seesaw button:", error)
         button_io = digitalio.DigitalInOut(fallback_pin)
         button_io.switch_to_input(pull=digitalio.Pull.UP)
         self.button = Debouncer(button_io)
-        print("Using fallback GPIO button input")
+        logger.info("Using fallback GPIO button input")
 
 def create_hardware(display_brightness):
     """Factory helper that returns a :class:`Hardware` instance."""
