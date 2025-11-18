@@ -7,6 +7,7 @@ import microcontroller
 from .display_manager import DisplayContext, DisplayManager, Layout
 from .hardware import create_hardware
 from .pid_controller import PIDController
+from .scroll_queue import ScrollQueue
 from .settings_store import SettingsStore
 from .simulated_oven import SimulatedOven
 from .updater import OTAUpdater
@@ -163,8 +164,7 @@ class OvenController:
         self.settings_index = 0
         self.settings_options = self._build_settings_options()
         self.mode_select_start = None
-        self._scroll_queue = []
-        self._active_scroll = None
+        self.scroll_queue = ScrollQueue()
         self.updater = OTAUpdater(
             settings_path=self.SETTINGS_PATH,
             version_url=self.VERSION_URL,
@@ -180,7 +180,6 @@ class OvenController:
         self.update_status = self._current_version or "TE N"
         self.update_choice = "TE N"
         self.force_update_choice = "TE N"
-        self._pending_reset = False
         self.last_activity = time.monotonic()
         self.idle_display_active = False
 
@@ -213,6 +212,9 @@ class OvenController:
             self._update_control(now)
             self._check_idle_display(now)
             self._update_display(now)
+            if self.scroll_queue.ready_to_reset():
+                self.scroll_queue.clear_reset()
+                microcontroller.reset()
             time.sleep(0.002)
 
     # ------------------------------------------------------------------
@@ -323,7 +325,7 @@ class OvenController:
             setting_value,
         ) = self._current_setting_display()
 
-        scroll_overrides = self._current_scroll_overrides(now)
+        scroll_overrides = self.scroll_queue.overrides(now)
 
         if self.idle_display_active:
             if force:
@@ -432,81 +434,11 @@ class OvenController:
         flash_br = self.bottom_element_on
         return flash_tr, flash_br
 
-    def _current_scroll_overrides(self, now):
-        state = self._active_scroll
-        if state is None and not self._scroll_queue and self._pending_reset:
-            self._pending_reset = False
-            microcontroller.reset()
-            return {}
-        if state is None and self._scroll_queue:
-            self._active_scroll = self._scroll_queue.pop(0)
-            state = self._active_scroll
-        if state is None:
-            return {}
-
-        if state["last"] is None:
-            state["last"] = now
-        elif (now - state["last"]) >= self.scroll_speed:
-            state["last"] = now
-            state["glyph"] += 1
-            if state["glyph"] > (state["total"] + 4):
-                if self._scroll_queue:
-                    self._active_scroll = self._scroll_queue.pop(0)
-                    self._active_scroll["last"] = None
-                    return self._current_scroll_overrides(now)
-                self._active_scroll = None
-                return {}
-
-        start = state["glyph"]
-        overrides = {
-            "tl": self._scroll_slice(state["text"], start),
-            "tr": self._scroll_slice(state["text"], start + 4),
-        }
-        return overrides
-
-    def _scroll_slice(self, text, start_glyph):
-        chunk = []
-        glyphs_collected = 0
-        glyph_index = 0
-        idx = 0
-        length = len(text)
-
-        while idx < length and glyph_index < start_glyph:
-            if text[idx] != ".":
-                glyph_index += 1
-            idx += 1
-
-        while idx < length and glyphs_collected < 4:
-            char = text[idx]
-            chunk.append(char)
-            if char != ".":
-                glyphs_collected += 1
-            idx += 1
-
-        while glyphs_collected < 4:
-            chunk.append(" ")
-            glyphs_collected += 1
-
-        return "".join(chunk)
-
-    def _count_glyphs(self, text):
-        return sum(1 for char in text if char != ".")
-
     def _start_scroll_message(self, message):
         sanitized = str(message or "").upper()
         if not sanitized.strip():
             return
-        padded = f"    {sanitized}    "
-        state = {
-            "text": padded,
-            "glyph": 0,
-            "last": None,
-            "total": max(self._count_glyphs(padded), 0),
-        }
-        if self._active_scroll is None:
-            self._active_scroll = state
-        else:
-            self._scroll_queue.append(state)
+        self.scroll_queue.queue_message(sanitized, self.scroll_speed)
 
     def _set_update_status(self, value):
         text = str(value or "")
@@ -1043,7 +975,7 @@ class OvenController:
             force=force,
         )
         if new_version:
-            self._pending_reset = True
+            self.scroll_queue.request_reset()
             self._current_version = new_version
             self._set_version_text(new_version)
             self._set_update_status(new_version)
