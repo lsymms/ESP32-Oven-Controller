@@ -3,6 +3,8 @@
 from collections import deque
 from typing import Deque, Dict, Optional
 
+from .logger import logger
+
 
 class _ScrollMessage:
     def __init__(self, text: str, speed: float, padding: int = 4):
@@ -35,6 +37,7 @@ class ScrollQueue:
         self._pending_reset = False
 
     def queue_message(self, text: str, speed: float):
+        logger.info("Queue scroll message:", text)
         self._queue.append(_ScrollMessage(text, speed))
 
     def request_reset(self):

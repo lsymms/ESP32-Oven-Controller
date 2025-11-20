@@ -182,6 +182,9 @@ class OvenController:
         self.force_update_choice = "TE N"
         self.last_activity = time.monotonic()
         self.idle_display_active = False
+        self._last_temp_log_time = 0.0
+        self._last_logged_set_temp = None
+        self._last_logged_oven_temp = None
 
         self.last_button_press_time = None
         self.long_press_handled = False
@@ -212,6 +215,7 @@ class OvenController:
             self._update_control(now)
             self._check_idle_display(now)
             self._update_display(now)
+            self._log_temperature_samples(now)
             if self.scroll_queue.ready_to_reset():
                 self.scroll_queue.clear_reset()
                 microcontroller.reset()
@@ -361,6 +365,81 @@ class OvenController:
             # Reset cached display values so that the first render prints to all.
             self.hardware.displays.reset_cache()
         self.display_manager.render(context)
+
+    # ------------------------------------------------------------------
+    # Logging helpers
+    # ------------------------------------------------------------------
+
+    def _state_name(self, state):
+        names = {
+            self.STATE_OFF: "OFF",
+            self.STATE_BAKE: "BAKE",
+            self.STATE_BROIL: "BROIL",
+            self.STATE_SETTINGS: "SETT",
+            self.STATE_MODE_SELECT: "MODE",
+            self.STATE_ALARM: "ALRM",
+        }
+        return names.get(state, f"STATE_{state}")
+
+    def _describe_setting_option(self, option):
+        label_top = option.get("label_top") or ""
+        label_bottom = option.get("label_bottom") or ""
+        combined = (label_top + label_bottom).strip()
+        if combined:
+            return combined
+        label = option.get("label")
+        if label:
+            return str(label).strip()
+        key = option.get("key")
+        if key:
+            return str(key).strip()
+        attr = option.get("attr")
+        if attr:
+            return str(attr).strip()
+        return "setting"
+
+    def _log_state_transition(self, previous_state, new_state):
+        if previous_state == new_state:
+            return
+        logger.info(
+            "Mode change:",
+            self._state_name(previous_state),
+            "->",
+            self._state_name(new_state),
+        )
+
+    def _log_setting_change(self, option, value):
+        label = self._describe_setting_option(option)
+        logger.info("Setting change:", label, "->", value)
+
+    def _log_temperature_samples(self, now):
+        if (now - self._last_temp_log_time) < 5.0:
+            return
+        set_temp = getattr(self, "set_temp", None)
+        oven_temp = getattr(self, "oven_temp", None)
+        if (
+            set_temp == self._last_logged_set_temp
+            and oven_temp == self._last_logged_oven_temp
+        ):
+            return
+        self._last_temp_log_time = now
+        self._last_logged_set_temp = set_temp
+        self._last_logged_oven_temp = oven_temp
+        logger.info(
+            "Temp snapshot -> set:",
+            self._format_temp_for_log(set_temp),
+            "oven:",
+            self._format_temp_for_log(oven_temp),
+        )
+
+    @staticmethod
+    def _format_temp_for_log(value):
+        if value is None:
+            return "n/a"
+        try:
+            return f"{float(value):.1f}F"
+        except (TypeError, ValueError):
+            return str(value)
 
     def _set_pixel_for_state(self, state):
         if state == self.STATE_OFF:
@@ -580,6 +659,7 @@ class OvenController:
     def _transition_to(self, state):
         previous_state = self.current_state
         self.current_state = state
+        self._log_state_transition(previous_state, state)
         if state == self.STATE_MODE_SELECT:
             self.mode_select_start = time.monotonic()
         else:
@@ -886,12 +966,14 @@ class OvenController:
                 index = 0
             step_dir = 1 if delta > 0 else -1
             index = (index + step_dir) % len(choices)
-            setattr(self, option["attr"], choices[index])
+            new_value = choices[index]
+            setattr(self, option["attr"], new_value)
             callback = option.get("on_change")
             if callback is not None:
-                callback(choices[index])
+                callback(new_value)
+            self._log_setting_change(option, new_value)
             if key and not key.startswith("_"):
-                self.settings.set(key, choices[index])
+                self.settings.set(key, new_value)
             return
         current = getattr(self, option["attr"])
         new_value = current + (delta * option["step"])
@@ -905,6 +987,7 @@ class OvenController:
         callback = option.get("on_change")
         if callback is not None:
             callback(new_value)
+        self._log_setting_change(option, new_value)
         if key and not key.startswith("_"):
             self.settings.set(key, new_value)
 

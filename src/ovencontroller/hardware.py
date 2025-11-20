@@ -131,7 +131,6 @@ class DisplayBundle:
             return
         try:
             display.print(text)
-            logger.info("Updated", key.upper(), "display to", text)
         except OSError as error:
             logger.warn("Display I2C error on", key.upper(), ":", error)
             # Attempt to reinitialise just this display so that future
