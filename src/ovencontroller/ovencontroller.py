@@ -205,21 +205,29 @@ class OvenController:
 
     def run(self):
         logger.info("Init complete; entering main loop.")
-        while True:
-            now = time.monotonic()
-            self._update_main_mode()
-            self._poll_encoder()
-            self._poll_button(now)
-            self._update_mode_select_timeout(now)
-            self._update_temperature(now)
-            self._update_control(now)
-            self._check_idle_display(now)
-            self._update_display(now)
-            self._log_temperature_samples(now)
-            if self.scroll_queue.ready_to_reset():
-                self.scroll_queue.clear_reset()
-                microcontroller.reset()
-            time.sleep(0.002)
+        try:
+            while True:
+                now = time.monotonic()
+                self._update_main_mode()
+                self._poll_encoder()
+                self._poll_button(now)
+                self._update_mode_select_timeout(now)
+                self._update_temperature(now)
+                self._update_control(now)
+                self._check_idle_display(now)
+                self._update_display(now)
+                self._log_temperature_samples(now)
+                if self.scroll_queue.ready_to_reset():
+                    self.scroll_queue.clear_reset()
+                    microcontroller.reset()
+                time.sleep(0.002)
+        except Exception as error:
+            logger.error("Run loop exception:", error)
+            try:
+                self._start_scroll_message(f"ERROR: {error}")
+            except Exception as scroll_error:  # noqa: BLE001
+                logger.error("Failed to queue scroll message for error:", scroll_error)
+            raise
 
     # ------------------------------------------------------------------
     # Hardware interactions
