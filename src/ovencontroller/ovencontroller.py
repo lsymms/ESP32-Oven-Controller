@@ -46,12 +46,12 @@ class OvenController:
     }
 
     DISPLAY_UPDATE_RATE = 1 / 15.0
-    TEMP_READ_RATE = 0.1
+    TEMP_READ_RATE = 0.01
     TEMP_DISPLAY_RATE = 0.5
     CONTROL_UPDATE_RATE = 1.0
     LONG_PRESS_TIME = 0.8
     MODE_SELECT_TIMEOUT = 10.0
-    TEMP_SMOOTHING_WINDOW = 5
+    TEMP_SMOOTHING_WINDOW = 50
 
     BROIL_HIGH_TEMP = 550.0
     BROIL_LOW_TEMP = 450.0
@@ -230,6 +230,11 @@ class OvenController:
 
             logger.error("Run loop exception:", error)
             try:
+                formatted = traceback.format_exception(
+                    type(error), error, error.__traceback__
+                )
+                for line in formatted:
+                    logger.error(line.strip())
                 traceback.print_exception(type(error), error, error.__traceback__)
             except Exception as trace_error:  # noqa: BLE001
                 logger.error("Failed to print traceback:", trace_error)
@@ -576,7 +581,21 @@ class OvenController:
             self.last_main_mode = self.current_state
 
     def _poll_encoder(self):
-        position = self.hardware.seesaw_rotary_encoder.position
+        try:
+            position = self.hardware.seesaw_rotary_encoder.position
+        except OSError as error:
+            logger.error("i/o error reading encoder ->", error)
+            time.sleep(5)
+            if self.hardware.recover_seesaw():
+                try:
+                    position = self.hardware.seesaw_rotary_encoder.position
+                except OSError as retry_error:
+                    logger.error(
+                        "encoder read retry failed after recovery ->", retry_error
+                    )
+                    raise
+            else:
+                raise
         delta = position - self.last_encoder_pos
         if delta == 0:
             return
@@ -617,7 +636,20 @@ class OvenController:
 
     def _poll_button(self, now):
         button = self.hardware.button
-        button.update()
+        try:
+            button.update()
+        except OSError as error:
+            logger.error("i/o error reading button ->", error)
+            time.sleep(5)
+            if self.hardware.recover_seesaw():
+                button = self.hardware.button
+                try:
+                    button.update()
+                except OSError as retry_error:
+                    logger.error("button read retry failed after recovery ->", retry_error)
+                    raise
+            else:
+                raise
 
         if button.fell:
             self._record_activity()
