@@ -46,10 +46,12 @@ class OvenController:
     }
 
     DISPLAY_UPDATE_RATE = 1 / 15.0
-    TEMP_UPDATE_RATE = 0.5
+    TEMP_READ_RATE = 0.1
+    TEMP_DISPLAY_RATE = 0.5
     CONTROL_UPDATE_RATE = 1.0
     LONG_PRESS_TIME = 0.8
     MODE_SELECT_TIMEOUT = 10.0
+    TEMP_SMOOTHING_WINDOW = 5
 
     BROIL_HIGH_TEMP = 550.0
     BROIL_LOW_TEMP = 450.0
@@ -182,6 +184,7 @@ class OvenController:
         self.force_update_choice = "TE N"
         self.last_activity = time.monotonic()
         self.idle_display_active = False
+        self._temp_samples = []
         self._last_temp_log_time = 0.0
         self._last_logged_set_temp = None
         self._last_logged_oven_temp = None
@@ -189,7 +192,8 @@ class OvenController:
         self.last_button_press_time = None
         self.long_press_handled = False
         self.last_display_update = 0.0
-        self.last_temp_update = 0.0
+        self.last_temp_read = 0.0
+        self.last_temp_display = 0.0
         self.last_control_update = 0.0
         self.last_encoder_pos = self.hardware.seesaw_rotary_encoder.position
 
@@ -222,7 +226,13 @@ class OvenController:
                     microcontroller.reset()
                 time.sleep(0.002)
         except Exception as error:
+            import traceback
+
             logger.error("Run loop exception:", error)
+            try:
+                traceback.print_exception(type(error), error, error.__traceback__)
+            except Exception as trace_error:  # noqa: BLE001
+                logger.error("Failed to print traceback:", trace_error)
             try:
                 self._start_scroll_message(f"ERROR: {error}")
             except Exception as scroll_error:  # noqa: BLE001
@@ -648,10 +658,19 @@ class OvenController:
             self.long_press_handled = False
 
     def _update_temperature(self, now):
-        if (now - self.last_temp_update) < self.TEMP_UPDATE_RATE:
+        if (now - self.last_temp_read) < self.TEMP_READ_RATE:
             return
-        self.last_temp_update = now
-        self.oven_temp = self._read_oven_temp()
+        self.last_temp_read = now
+        latest_temp = self._read_oven_temp()
+        self._record_temp_sample(latest_temp)
+        if (now - self.last_temp_display) < self.TEMP_DISPLAY_RATE:
+            return
+        self.last_temp_display = now
+        smoothed = self._smoothed_temp()
+        if smoothed is not None:
+            self.oven_temp = smoothed
+        elif latest_temp is not None:
+            self.oven_temp = latest_temp
         if self.oven_temp >= (self.BROIL_HIGH_TEMP + 50):
             self._transition_to(self.STATE_ALARM)
             self._set_heating_mode(self.HEAT_MODE_OFF)
@@ -865,6 +884,18 @@ class OvenController:
             bottom_on=self.bottom_element_on,
             top_on=self.top_element_on,
         )
+
+    def _record_temp_sample(self, value):
+        if value is None:
+            return
+        self._temp_samples.append(value)
+        if len(self._temp_samples) > self.TEMP_SMOOTHING_WINDOW:
+            self._temp_samples.pop(0)
+
+    def _smoothed_temp(self):
+        if not self._temp_samples:
+            return None
+        return sum(self._temp_samples) / len(self._temp_samples)
 
     def _load_setting_float(self, key, default, lower, upper):
         try:
