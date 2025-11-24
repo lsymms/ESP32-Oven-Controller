@@ -449,6 +449,27 @@ class OvenController:
         except (TypeError, ValueError):
             return str(value)
 
+    @staticmethod
+    def _pad_four(text):
+        if text is None:
+            text = ""
+        text = str(text)
+        buffer = []
+        glyphs = 0
+        for char in text:
+            if char == "." and not buffer:
+                # Skip leading decimals so they don't orphan.
+                continue
+            buffer.append(char)
+            if char != ".":
+                glyphs += 1
+            if glyphs >= 4:
+                break
+        while glyphs < 4:
+            buffer.append(" ")
+            glyphs += 1
+        return "".join(buffer)
+
     def _set_pixel_for_state(self, state):
         if state == self.STATE_OFF:
             color = (0, 0, 0)
@@ -1049,8 +1070,7 @@ class OvenController:
 
     def _set_version_text(self, version):
         full = (version or "0.0.0").upper()
-        display = f"V{full}"
-        display = display[:4].ljust(4)
+        display = self._pad_four(full)
         self._version_text = display
         logger.info(f"Version text set to '{display}' (full '{full}')")
 

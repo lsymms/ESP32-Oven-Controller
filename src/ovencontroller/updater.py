@@ -100,6 +100,7 @@ class OTAUpdater:
         self._status_callback(value)
 
     def _message(self, text):
+        logger.info("Update message:", text)
         self._message_callback(text)
 
     def _parse_settings(self):
