@@ -91,8 +91,11 @@ class OvenController:
     DUTY_MIN_SET_TEMP = 90.0
     DUTY_FULL_SET_TEMP = 200.0
     DUTY_MIN = 0.10
+    DUTY_BROIL_LOW = 0.5
     DUTY_MIN_ON_TIME = 0.25
     DUTY_MIN_OFF_TIME = 0.25
+    DUTY_TOP_MIN_ON_TIME = 10.0
+    DUTY_TOP_MIN_OFF_TIME = 10.0
 
     DECIMAL_FLASH_PERIOD = 0.25
     SCROLL_SPEED_DEFAULT = 0.2
@@ -201,9 +204,10 @@ class OvenController:
         self.last_temp_display = 0.0
         self.last_control_update = 0.0
         now = time.monotonic()
-        self._duty_state_on = False
-        self._duty_next_transition = now
-        self._last_duty_value = None
+        self._duty_states = {
+            "bottom": {"on": False, "next": now, "value": None},
+            "top": {"on": False, "next": now, "value": None},
+        }
         self.last_encoder_pos = self.hardware.seesaw_rotary_encoder.position
 
         self._reset_pid()
@@ -733,13 +737,13 @@ class OvenController:
             self._set_heating_mode(self.HEAT_MODE_DIRECT)
             if self.oven_temp < target:
                 if self.broil_level == self.BROIL_LEVEL_LOW:
-                    duty_on = self._duty_active(0.5)
+                    duty_on = self._duty_active(self.DUTY_BROIL_LOW, channel="top")
                     self._set_elements(False, duty_on, reason="broil control (low duty)")
                 else:
-                    self._duty_active(1.0)
+                    self._duty_active(1.0, channel="top")
                     self._set_elements(False, True, reason="broil control")
             else:
-                self._duty_active(0.0)
+                self._duty_active(0.0, channel="top")
                 self._set_elements(False, False, reason="broil control")
         else:
             self._set_heating_mode(self.HEAT_MODE_OFF)
@@ -1200,7 +1204,7 @@ class OvenController:
         output, _ = self.pid.update(error, now)
         duty_cap = self._duty_cap_for_temp()
         duty = self._clamp(output, 0.0, duty_cap)
-        heater_on = self._duty_active(duty)
+        heater_on = self._duty_active(duty, channel="bottom")
         self._set_elements(heater_on, False, reason="pid control")
 
     def _apply_direct_heating(self, request_on, now):
@@ -1208,20 +1212,19 @@ class OvenController:
         if not request_on:
             self._set_elements(False, False, reason="direct heating")
             self._reset_pid(now=now, error=self.set_temp - self.oven_temp)
+            self._reset_duty_state("top")
             return
         duty = self._duty_cap_for_temp()
-        heater_on = self._duty_active(duty)
-        self._set_elements(heater_on, heater_on, reason="direct heating")
-        if not heater_on:
+        bottom_on = self._duty_active(duty, channel="bottom")
+        top_on = self._duty_active(duty, channel="top")
+        self._set_elements(bottom_on, top_on, reason="direct heating")
+        if not bottom_on:
             self._reset_pid(now=now, error=self.set_temp - self.oven_temp)
 
     def _reset_pid(self, *, now=None, error=0.0):
         self.pid.configure(kp=self.pid_kp, ki=self.pid_ki, kd=self.pid_kd)
         self.pid.reset(now=now, error=error)
-        current = time.monotonic()
-        self._duty_state_on = False
-        self._duty_next_transition = current
-        self._last_duty_value = None
+        self._reset_duty_state("bottom")
 
     def _duty_cap_for_temp(self):
         set_point = self.set_temp or 0
@@ -1233,51 +1236,64 @@ class OvenController:
         scale = (set_point - self.DUTY_MIN_SET_TEMP) / span
         return self.DUTY_MIN + scale * (1.0 - self.DUTY_MIN)
 
-    def _duty_active(self, duty):
+    def _ensure_duty_state(self, channel):
+        state = self._duty_states.get(channel)
+        if state is None:
+            now = time.monotonic()
+            state = {"on": False, "next": now, "value": None}
+            self._duty_states[channel] = state
+        return state
+
+    def _reset_duty_state(self, channel):
+        state = self._ensure_duty_state(channel)
         now = time.monotonic()
+        state["on"] = False
+        state["next"] = now
+        state["value"] = None
+
+    def _duty_active(self, duty, channel="bottom"):
+        state = self._ensure_duty_state(channel)
+        now = time.monotonic()
+        if channel == "top":
+            min_on = self.DUTY_TOP_MIN_ON_TIME
+            min_off = self.DUTY_TOP_MIN_OFF_TIME
+        else:
+            min_on = self.DUTY_MIN_ON_TIME
+            min_off = self.DUTY_MIN_OFF_TIME
+
         if duty <= 0.0:
-            self._duty_state_on = False
-            self._duty_next_transition = now
-            self._last_duty_value = None
+            state["on"] = False
+            state["next"] = now
+            state["value"] = None
             return False
         if duty >= 1.0:
-            self._duty_state_on = True
-            self._duty_next_transition = None
-            self._last_duty_value = 1.0
+            state["on"] = True
+            state["next"] = None
+            state["value"] = 1.0
             return True
 
         if (
-            self._last_duty_value is None
-            or abs(self._last_duty_value - duty) > 0.01
-            or self._duty_next_transition is None
+            state["value"] is None
+            or abs(state["value"] - duty) > 0.01
+            or state["next"] is None
         ):
-            self._duty_state_on = False
-            off_time = max(
-                self.DUTY_MIN_OFF_TIME,
-                self.PID_CYCLE_TIME * max(0.0, 1.0 - duty),
-            )
-            self._duty_next_transition = now + off_time
-            self._last_duty_value = duty
+            state["on"] = False
+            off_time = max(min_off, self.PID_CYCLE_TIME * max(0.0, 1.0 - duty))
+            state["next"] = now + off_time
+            state["value"] = duty
             return False
 
-        if now >= self._duty_next_transition:
-            if self._duty_state_on:
-                off_time = max(
-                    self.DUTY_MIN_OFF_TIME,
-                    self.PID_CYCLE_TIME * max(0.0, 1.0 - duty),
-                )
-                self._duty_state_on = False
-                self._duty_next_transition = now + off_time
+        if now >= state["next"]:
+            if state["on"]:
+                off_time = max(min_off, self.PID_CYCLE_TIME * max(0.0, 1.0 - duty))
+                state["on"] = False
+                state["next"] = now + off_time
             else:
-                on_time = max(
-                    self.DUTY_MIN_ON_TIME,
-                    self.PID_CYCLE_TIME * duty,
-                )
-                self._duty_state_on = True
-                self._duty_next_transition = now + on_time
+                on_time = max(min_on, self.PID_CYCLE_TIME * duty)
+                state["on"] = True
+                state["next"] = now + on_time
 
-        return self._duty_state_on
-        self.pid_cycle_start = time.monotonic()
+        return state["on"]
 
 
 def run():
