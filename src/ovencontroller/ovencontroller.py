@@ -732,8 +732,14 @@ class OvenController:
             )
             self._set_heating_mode(self.HEAT_MODE_DIRECT)
             if self.oven_temp < target:
-                self._set_elements(False, True, reason="broil control")
+                if self.broil_level == self.BROIL_LEVEL_LOW:
+                    duty_on = self._duty_active(0.5)
+                    self._set_elements(False, duty_on, reason="broil control (low duty)")
+                else:
+                    self._duty_active(1.0)
+                    self._set_elements(False, True, reason="broil control")
             else:
+                self._duty_active(0.0)
                 self._set_elements(False, False, reason="broil control")
         else:
             self._set_heating_mode(self.HEAT_MODE_OFF)
