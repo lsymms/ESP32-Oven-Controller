@@ -36,6 +36,8 @@ class OTAUpdater:
         self._status_callback = status_callback or (lambda _value: None)
         self._message_callback = message_callback or (lambda _text: None)
         self._requests = None
+        self._retries = 1
+        self._retry_delay = 1.0
 
     # ------------------------------------------------------------------
     # Public helpers
@@ -50,18 +52,22 @@ class OTAUpdater:
 
     def check_for_update(self, *, current_version, force=False):
         if not self._ensure_session():
+            logger.error("WiFi unavailable for update")
             self._set_status("NOWF")
             self._message("WiFi unavailable for update")
             return False
         try:
-            response = self._requests.get(self.version_url)
+            logger.info(f"Fetching version from {self.version_url}")
+            response = self._http_get(self.version_url, "version file")
             remote_version = response.text.strip()
             response.close()
         except Exception as error:  # noqa: BLE001
+            logger.error("Error fetching version:", error)
             self._set_status("ERR!")
-            self._message(f"Update error: {error}")
+            self._message(f"Update error fetching version: {error}")
             return False
         if not remote_version:
+            logger.error("No version data")
             self._set_status("NODT")
             self._message("Update error: no version data")
             return False
@@ -72,13 +78,15 @@ class OTAUpdater:
 
         manifest = self._download_manifest()
         if not manifest:
+            logger.error("invalid manifest")
             self._set_status("ERR!")
             self._message("Update error: invalid manifest")
             return False
         files = manifest.get("files") or []
+        logger.info("Updating to version", remote_version, "with", len(files), "files")
         self._set_status(remote_version)
         self._message(
-            f"updating from current version {current_version or 'unknown'} to new versions {remote_version}"
+            f"updating from {current_version or 'unknown'} to {remote_version}"
         )
         try:
             self._download_files(files)
@@ -89,7 +97,6 @@ class OTAUpdater:
 
         self._write_local_version(remote_version)
         self._message(f"Update to {remote_version} complete. Rebooting...")
-        time.sleep(1)
         return remote_version
 
     # ------------------------------------------------------------------
@@ -132,25 +139,34 @@ class OTAUpdater:
         if not ssid or not password:
             return False
         try:
-            self._message("connecting to wifi")
+            logger.info("connecting to wifi")
             wifi.radio.connect(ssid, password)
             pool = socketpool.SocketPool(wifi.radio)
             self._requests = adafruit_requests.Session(
                 pool, ssl.create_default_context()
             )
+            self._message("wifi connected")
+            try:
+                ip = wifi.radio.ipv4_address
+                logger.info(f"wifi connected as {ip}")
+            except Exception:  # noqa: BLE001
+                pass          
             return True
         except Exception as error:  # noqa: BLE001
             self._message(f"WiFi connect failed: {error}")
+            logger.error("WiFi connect failed:", error)
             return False
 
     def _download_manifest(self):
         try:
-            response = self._requests.get(self.manifest_url)
+            logger.info("Downloading manifest from", self.manifest_url)
+            response = self._http_get(self.manifest_url, "manifest")
             text = response.text
             response.close()
             return json.loads(text)
         except Exception as error:  # noqa: BLE001
             self._message(f"Manifest error: {error}")
+            logger.error("Manifest download error:", error)
             return None
 
     def _download_files(self, manifest_files):
@@ -162,10 +178,14 @@ class OTAUpdater:
             target_path = self._join_target(path)
             directory = self._directory_name(target_path)
             self._ensure_directory(directory)
-            response = self._requests.get(url)
-            with open(target_path, "wb") as target:
-                target.write(response.content)
-            response.close()
+            logger.info("Update download:", path, "from", url)
+            try:
+                response = self._http_get(url, f"file {path}")
+                with open(target_path, "wb") as target:
+                    target.write(response.content)
+                response.close()
+            except Exception as error:  # noqa: BLE001
+                raise RuntimeError(f"{path} download failed: {error}")
 
     def _join_target(self, relative_path):
         if not relative_path:
@@ -211,3 +231,25 @@ class OTAUpdater:
                 file.write(version)
         except OSError as error:
             logger.error("Failed to update local version:", error)
+
+    def _http_get(self, url, label):
+        logger.info("HTTP GET:", label, url)
+        """Wrapper that retries GET requests and raises with context."""
+        last_error = None
+        for attempt in range(1, self._retries + 1):
+            try:
+                response = self._requests.get(url)
+                status = getattr(response, "status_code", 200)
+                if status not in (None, 200):
+                    response.close()
+                    raise RuntimeError(f"{label} HTTP {status}")
+                return response
+            except Exception as error:  # noqa: BLE001
+                last_error = error
+                if attempt >= self._retries:
+                    break
+                self._message(
+                    f"{label} attempt {attempt} failed: {error}; retrying"
+                )
+                time.sleep(self._retry_delay)
+        raise last_error or RuntimeError(f"{label} failed")
