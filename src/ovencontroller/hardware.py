@@ -24,6 +24,11 @@ except ImportError:
     SeesawDigitalIO = None
 
 try:
+    from adafruit_seesaw.neopixel import NeoPixel as SeesawNeoPixel
+except ImportError:
+    SeesawNeoPixel = None
+
+try:
     from adafruit_seesaw.seesaw import Seesaw
     from adafruit_seesaw.rotaryio import (
         IncrementalEncoder as SeesawIncrementalEncoder,
@@ -38,6 +43,10 @@ class _DummySeesawEncoder:
 
     def __init__(self):
         self.position = 0
+
+
+# The QT Rotary encoder breakout exposes a single NeoPixel on Seesaw pin 6.
+SEESAW_NEOPIXEL_PIN = 6
 
 
 class RelayPair:
@@ -63,6 +72,7 @@ class DisplayBundle:
         self._addresses = addresses
         self._displays = {}
         self._last_values = {key: "" for key in addresses}
+        self._health_failures = {key: 0 for key in addresses}
         self._brightness = brightness
         self._init_all()
 
@@ -73,9 +83,12 @@ class DisplayBundle:
             display.brightness = self._brightness
             display.fill(0)
             self._displays[key] = display
+            self._last_values[key] = ""
+            self._health_failures[key] = 0
             logger.info("Display", label, "found at", hex(address))
         except Exception as error:  # noqa: BLE001 - hardware errors are opaque
             self._displays[key] = None
+            self._last_values[key] = ""
             _log_io_error("initializing", f"display {label}", error)
 
     def _init_all(self):
@@ -142,6 +155,29 @@ class DisplayBundle:
             address = self._addresses[key]
             self._init_display(key, address)
 
+    def health_check(self):
+        """Actively ping each display and log any failures."""
+        issues = []
+        for key in self._addresses:
+            display = self._displays.get(key)
+            if display is None:
+                issues.append(f"{key.upper()}:not initialized")
+                continue
+            text = self._last_values.get(key, "    ") or "    "
+            try:
+                # Re-send the cached text to verify the device still responds.
+                display.print(text)
+                if self._health_failures.get(key, 0):
+                    logger.info(f"Display {key.upper()} recovered during health check")
+                self._health_failures[key] = 0
+            except OSError as error:
+                _log_io_error("health check write to", f"display {key.upper()}", error)
+                address = self._addresses[key]
+                self._init_display(key, address)
+                self._health_failures[key] = self._health_failures.get(key, 0) + 1
+                issues.append(f"{key.upper()} error {self._health_failures[key]}")
+        return issues
+
 
 class Hardware:
     """Aggregate of all hardware peripherals used by the controller."""
@@ -183,7 +219,9 @@ class Hardware:
         self._encoder_address = encoder_address
         self._button_pin = button_pin
 
-        self._init_encoder(encoder_address)
+        encoder_ok = self._init_encoder(encoder_address)
+        if encoder_ok:
+            self._disable_seesaw_neopixel()
         self._init_button(button_pin)
 
         self.relays = RelayPair(bottom_relay_pin, top_relay_pin)
@@ -273,6 +311,29 @@ class Hardware:
             self._seesaw = None
             return False
 
+    def _disable_seesaw_neopixel(self):
+        """Turn off the NeoPixel on the Seesaw board to avoid random flickers."""
+        if self._seesaw is None or SeesawNeoPixel is None:
+            return False
+        try:
+            pixel = SeesawNeoPixel(
+                self._seesaw,
+                SEESAW_NEOPIXEL_PIN,
+                1,
+                brightness=0.0,
+                auto_write=True,
+            )
+            pixel.fill((0, 0, 0))
+            try:
+                pixel.deinit()
+            except Exception:
+                pass
+            logger.info("Seesaw NeoPixel disabled")
+            return True
+        except Exception as error:
+            _log_io_error("disabling", "Seesaw NeoPixel", error)
+            return False
+
     def _init_button(self, fallback_pin):
         if self._seesaw is not None and SeesawDigitalIO is not None:
             try:
@@ -293,6 +354,8 @@ class Hardware:
     def recover_seesaw(self):
         logger.warn("Attempting to recover Seesaw devices after I/O error.")
         encoder_ok = self._init_encoder(self._encoder_address)
+        if encoder_ok:
+            self._disable_seesaw_neopixel()
         button_ok = self._init_button(self._button_pin)
         return encoder_ok and button_ok
 
