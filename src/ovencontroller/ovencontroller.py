@@ -46,6 +46,7 @@ class OvenController:
     }
 
     DISPLAY_UPDATE_RATE = 1 / 15.0
+    DISPLAY_HEALTH_INTERVAL = 10.0
     TEMP_READ_RATE = 0.01
     TEMP_DISPLAY_RATE = 1.0
     CONTROL_UPDATE_RATE = 1.0
@@ -203,6 +204,7 @@ class OvenController:
         self.last_temp_read = 0.0
         self.last_temp_display = 0.0
         self.last_control_update = 0.0
+        self.last_display_health_check = 0.0
         now = time.monotonic()
         self._duty_states = {
             "bottom": {"on": False, "next": now, "value": None},
@@ -233,6 +235,7 @@ class OvenController:
                 self._update_control(now)
                 self._check_idle_display(now)
                 self._update_display(now)
+                self._check_display_health(now)
                 self._log_temperature_samples(now)
                 if self.scroll_queue.ready_to_reset():
                     self.scroll_queue.clear_reset()
@@ -401,6 +404,14 @@ class OvenController:
             # Reset cached display values so that the first render prints to all.
             self.hardware.displays.reset_cache()
         self.display_manager.render(context)
+
+    def _check_display_health(self, now):
+        if (now - self.last_display_health_check) < self.DISPLAY_HEALTH_INTERVAL:
+            return
+        self.last_display_health_check = now
+        issues = self.hardware.displays.health_check()
+        if issues:
+            logger.error("Display health check failures: " + ", ".join(issues))
 
     # ------------------------------------------------------------------
     # Logging helpers
